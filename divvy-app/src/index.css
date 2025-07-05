@@ -1,4 +1,6 @@
 /* Global styles for the entire application */
+@import "tailwindcss";
+/* Global styles for the entire application */
 
 :root {
   /* Color Palette */
@@ -6,6 +8,7 @@
   --color-primary-hover: #65a30d;
   --color-secondary: #3b82f6; /* blue */
   --color-danger: #ef4444;
+  --color-success: #22c55e; /* green for success */
   --color-text-dark: #1f2937;
   --color-text-medium: #4b5563;
   --color-text-light: #6b7280;
@@ -42,7 +45,8 @@ body {
   background-color: var(--color-bg-card);
   display: flex;
   flex-direction: column;
-  overflow-y: auto; /* Allows content to scroll */
+  overflow: hidden; /* Prevent body scroll */
+  position: relative; /* For notification positioning */
 }
 
 /* --- Responsive styles for Web/Desktop --- */
@@ -75,6 +79,7 @@ body {
     flex-direction: column;
     height: 100%;
     background-color: var(--color-bg-card);
+    overflow: hidden;
 }
 
 .screen-header {
@@ -437,4 +442,55 @@ body {
     display: flex;
     gap: 0.75rem;
     margin-top: 1.5rem;
+}
+
+/* --- Notification Banner --- */
+.notification-banner {
+    position: absolute;
+    top: 1rem;
+    left: 1rem;
+    right: 1rem;
+    background-color: var(--color-success);
+    color: white;
+    padding: 1rem;
+    border-radius: 0.5rem;
+    text-align: center;
+    font-weight: 600;
+    z-index: 50;
+    animation: fade-in-down 0.5s ease-out;
+}
+
+@keyframes fade-in-down {
+    from {
+        opacity: 0;
+        transform: translateY(-20px);
+    }
+    to {
+        opacity: 1;
+        transform: translateY(0);
+    }
+}
+
+/* --- Split Input Styles --- */
+.split-container {
+    display: flex;
+    flex-direction: column;
+    gap: 0.75rem;
+    margin-top: 1rem;
+}
+.split-item {
+    display: flex;
+    align-items: center;
+    gap: 1rem;
+}
+.split-label {
+    flex-basis: 40%;
+    text-align: right;
+    font-weight: 600;
+}
+.split-input {
+    flex-grow: 1;
+    padding: 0.5rem;
+    border: 1px solid var(--color-border);
+    border-radius: 0.5rem;
 }

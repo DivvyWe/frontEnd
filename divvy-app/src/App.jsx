@@ -18,10 +18,7 @@ const api = {
     const config = {
       method: body ? 'POST' : 'GET',
       ...customConfig,
-      headers: {
-        ...headers,
-        ...customConfig.headers,
-      },
+      headers: { ...headers, ...customConfig.headers },
     };
     if (body) {
       config.body = JSON.stringify(body);
@@ -33,49 +30,65 @@ const api = {
     }
     return data;
   },
-  register(body) {
-    return this.request('/auth/register', { body });
-  },
-  login(body) {
-    return this.request('/auth/login', { body });
-  },
-  getGroups() {
-    return this.request('/user/groups');
-  },
-  getPendingInvites() {
-    return this.request('/user/groups/invites');
-  },
-  acceptInvite(groupId) {
-    return this.request(`/user/groups/${groupId}/accept`, { method: 'POST' });
-  },
-  rejectInvite(groupId) {
-    return this.request(`/user/groups/${groupId}/reject`, { method: 'POST' });
-  },
+  register(body) { return this.request('/auth/register', { body }); },
+  login(body) { return this.request('/auth/login', { body }); },
+  getGroups() { return this.request('/user/groups'); },
+  createGroup(body) { return this.request('/user/groups', { body }); },
+  getGroupDetails(groupId) { return this.request(`/groups/${groupId}`); },
+  getGroupExpenses(groupId) { return this.request(`/expenses/group/${groupId}`); },
+  getGroupSummary(groupId) { return this.request(`/groups/${groupId}/summary/raw`); },
+  getPendingInvites() { return this.request('/user/groups/invites'); },
+  acceptInvite(inviteId) { return this.request(`/user/groups/${inviteId}/accept`, { method: 'POST' }); },
+  rejectInvite(inviteId) { return this.request(`/user/groups/${inviteId}/reject`, { method: 'POST' }); },
+  addExpense(body) { return this.request('/expenses', { body }); },
 };
 
+// --- Helper Function ---
+const getDefaultAvatar = (name) => {
+    const initial = name ? name.charAt(0).toUpperCase() : 'U';
+    return `https://placehold.co/100x100/A3E635/1E293B?text=${initial}`;
+};
 
 function App() {
   const [page, setPage] = useState('loading');
   const [user, setUser] = useState(null);
-  const [selectedGroup, setSelectedGroup] = useState(null);
-  const [selectedBalance, setSelectedBalance] = useState(null);
-  const [selectedExpense, setSelectedExpense] = useState(null);
+  const [pageData, setPageData] = useState(null);
+  const [notification, setNotification] = useState(null);
 
   useEffect(() => {
     const token = localStorage.getItem('divvy_token');
     const userData = localStorage.getItem('divvy_user');
     if (token && userData) {
-      setUser(JSON.parse(userData));
-      setPage('dashboard');
+      try {
+        const parsedUser = JSON.parse(userData);
+        if (!parsedUser.avatar) {
+            parsedUser.avatar = getDefaultAvatar(parsedUser.username || parsedUser.email);
+        }
+        setUser(parsedUser);
+        setPage('dashboard');
+      } catch (error) {
+        handleLogout();
+      }
     } else {
       setPage('signin');
     }
   }, []);
 
-  const handleLoginSuccess = (userData) => {
-    setUser(userData.user);
-    localStorage.setItem('divvy_token', userData.token);
-    localStorage.setItem('divvy_user', JSON.stringify(userData.user));
+  const showNotification = (message) => {
+    setNotification(message);
+    setTimeout(() => {
+        setNotification(null);
+    }, 3000);
+  };
+
+  const handleLoginSuccess = (data) => {
+    const userToSave = data.user;
+    if (!userToSave.avatar) {
+        userToSave.avatar = getDefaultAvatar(userToSave.username || userToSave.email);
+    }
+    setUser(userToSave);
+    localStorage.setItem('divvy_token', data.token);
+    localStorage.setItem('divvy_user', JSON.stringify(userToSave));
     setPage('dashboard');
   };
 
@@ -86,62 +99,45 @@ function App() {
     setPage('signin');
   };
 
-  const handleSelectGroup = (group) => {
-    setSelectedGroup(group);
-    setPage('groupDetail');
-  }
-
-  const handleSelectBalance = (balance) => {
-    setSelectedBalance(balance);
-    setPage('balanceDetail');
-  }
-
-  const handleSelectExpense = (expense) => {
-    setSelectedExpense(expense);
-    setPage('expenseDetail');
+  const navigateTo = (pageName, data = null) => {
+      setPageData(data);
+      setPage(pageName);
   }
 
   const renderPage = () => {
-    if (page === 'loading') return <div className="loading-text">Loading...</div>;
+    if (page === 'loading') return <div className="loading-text">Loading App...</div>;
 
     if (user) {
       switch(page) {
         case 'dashboard':
-          return <DashboardScreen user={user} onGoToProfile={() => setPage('profile')} onGoToCreateGroup={() => setPage('createGroup')} onSelectGroup={handleSelectGroup} />;
+          return <DashboardScreen user={user} onGoToProfile={() => navigateTo('profile')} onGoToCreateGroup={() => navigateTo('createGroup')} onSelectGroup={(group) => navigateTo('groupDetail', group)} />;
         case 'profile':
-          return <ProfileScreen user={user} onBack={() => setPage('dashboard')} onLogout={handleLogout} />;
+          return <ProfileScreen user={user} onBack={() => navigateTo('dashboard')} onLogout={handleLogout} />;
         case 'createGroup':
-          return <CreateGroupScreen onBack={() => setPage('dashboard')} />;
+          return <CreateGroupScreen onGroupCreated={() => navigateTo('dashboard')} onBack={() => navigateTo('dashboard')} />;
         case 'groupDetail':
-          return <GroupDetailScreen group={selectedGroup} onBack={() => setPage('dashboard')} onGoToRecordPayment={() => setPage('recordPayment')} onSelectBalance={handleSelectBalance} onGoToAddExpense={() => setPage('addExpense')} onGoToInvite={() => setPage('invite')} onSelectExpense={handleSelectExpense} />;
-        case 'recordPayment':
-          return <RecordPaymentScreen group={selectedGroup} onBack={() => setPage('groupDetail')} />;
-        case 'balanceDetail':
-          return <BalanceDetailScreen balance={selectedBalance} onBack={() => setPage('groupDetail')} />;
+          return <GroupDetailScreen user={user} group={pageData} onBack={() => navigateTo('dashboard')} navigateTo={navigateTo} />;
         case 'addExpense':
-            return <AddExpenseScreen group={selectedGroup} onBack={() => setPage('groupDetail')} />;
-        case 'expenseDetail':
-            return <ExpenseDetailScreen expense={selectedExpense} onBack={() => setPage('groupDetail')} />;
-        case 'invite':
-            return <InviteScreen group={selectedGroup} onBack={() => setPage('groupDetail')} />;
+            return <AddExpenseScreen group={pageData} onBack={() => navigateTo('groupDetail', pageData)} showNotification={showNotification} user={user} />;
         default:
-          return <DashboardScreen user={user} onGoToProfile={() => setPage('profile')} onGoToCreateGroup={() => setPage('createGroup')} onSelectGroup={handleSelectGroup} />;
+          return <DashboardScreen user={user} onGoToProfile={() => navigateTo('profile')} onGoToCreateGroup={() => navigateTo('createGroup')} onSelectGroup={(group) => navigateTo('groupDetail', group)} />;
       }
     }
 
     switch (page) {
       case 'signin':
-        return <SignInScreen onGoToSignUp={() => setPage('signup')} onLoginSuccess={handleLoginSuccess} />;
+        return <SignInScreen onGoToSignUp={() => navigateTo('signup')} onLoginSuccess={handleLoginSuccess} />;
       case 'signup':
-        return <SignUpScreen onGoToSignIn={() => setPage('signin')} onLoginSuccess={handleLoginSuccess} />;
+        return <SignUpScreen onGoToSignIn={() => navigateTo('signin')} onLoginSuccess={handleLoginSuccess} />;
       default:
-        return <SignInScreen onGoToSignUp={() => setPage('signup')} onLoginSuccess={handleLoginSuccess} />;
+        return <SignInScreen onGoToSignUp={() => navigateTo('signup')} onLoginSuccess={handleLoginSuccess} />;
     }
   };
 
   return (
     <div className="page-container">
       <div className="phone-screen">
+        {notification && <div className="notification-banner">{notification}</div>}
         {renderPage()}
       </div>
     </div>
@@ -174,7 +170,7 @@ function SignInScreen({ onGoToSignUp, onLoginSuccess }) {
       <h1 className="title">Mates</h1>
       <p className="subtitle">Split bills, not friendships.</p>
       <form className="form-container" onSubmit={handleSubmit}>
-        {error && <p className="error-text">{error}</p>}
+        {error && <p className="error-text" style={{color: 'var(--color-danger)', marginBottom: '1rem'}}>{error}</p>}
         <input className="input" type="email" placeholder="Email Address" value={email} onChange={(e) => setEmail(e.target.value)} />
         <input className="input" style={{marginBottom: '1.5rem'}} type="password" placeholder="Password" value={password} onChange={(e) => setPassword(e.target.value)} />
         <button className="button" type="submit" disabled={isLoading}>{isLoading ? 'Signing In...' : 'SIGN IN'}</button>
@@ -195,13 +191,13 @@ function SignUpScreen({ onGoToSignIn, onLoginSuccess }) {
     setIsLoading(true);
     setError(null);
     try {
-      await api.register({ username, email, password });
-      const loginData = await api.login({ email, password });
-      onLoginSuccess(loginData);
+        await api.register({ username, email, password });
+        const loginData = await api.login({ email, password });
+        onLoginSuccess(loginData);
     } catch (err) {
-      setError(err.message);
+        setError(err.message);
     } finally {
-      setIsLoading(false);
+        setIsLoading(false);
     }
   };
 
@@ -210,7 +206,7 @@ function SignUpScreen({ onGoToSignIn, onLoginSuccess }) {
       <h1 className="title">Create Account</h1>
       <p className="subtitle">Join Mates and start sharing.</p>
       <form className="form-container" onSubmit={handleSubmit}>
-        {error && <p className="error-text">{error}</p>}
+        {error && <p className="error-text" style={{color: 'var(--color-danger)', marginBottom: '1rem'}}>{error}</p>}
         <input className="input" type="text" placeholder="Username" value={username} onChange={(e) => setUsername(e.target.value)} />
         <input className="input" type="email" placeholder="Email Address" value={email} onChange={(e) => setEmail(e.target.value)} />
         <input className="input" style={{marginBottom: '1.5rem'}} type="password" placeholder="Password" value={password} onChange={(e) => setPassword(e.target.value)} />
@@ -226,35 +222,48 @@ function DashboardScreen({ user, onGoToProfile, onGoToCreateGroup, onSelectGroup
   const [groups, setGroups] = useState([]);
   const [invites, setInvites] = useState([]);
   const [isLoading, setIsLoading] = useState(true);
+  const [error, setError] = useState(null);
 
   const fetchData = async () => {
-    try {
-      setIsLoading(true);
-      const [groupsData, invitesData] = await Promise.all([
-        api.getGroups(),
-        api.getPendingInvites()
-      ]);
-      setGroups(groupsData);
-      setInvites(invitesData);
-    } catch (error) {
-      console.error("Failed to fetch data:", error);
-    } finally {
-      setIsLoading(false);
-    }
+      try {
+        setIsLoading(true);
+        setError(null);
+        const [groupsResponse, invitesResponse] = await Promise.all([
+          api.getGroups(),
+          api.getPendingInvites()
+        ]);
+        
+        setGroups(Array.isArray(groupsResponse.groups) ? groupsResponse.groups : []);
+        setInvites(Array.isArray(invitesResponse) ? invitesResponse : []);
+
+      } catch (error) {
+        console.error("Failed to fetch dashboard data:", error);
+        setError(error.message);
+      } finally {
+        setIsLoading(false);
+      }
   };
 
   useEffect(() => {
     fetchData();
   }, []);
 
-  const handleAccept = async (groupId) => {
-    await api.acceptInvite(groupId);
-    fetchData(); // Refresh data
+  const handleAccept = async (inviteId) => {
+    try {
+        await api.acceptInvite(inviteId);
+        fetchData(); 
+    } catch (error) {
+        alert(`Failed to accept invite: ${error.message}`);
+    }
   };
 
-  const handleReject = async (groupId) => {
-    await api.rejectInvite(groupId);
-    fetchData(); // Refresh data
+  const handleReject = async (inviteId) => {
+     try {
+        await api.rejectInvite(inviteId);
+        fetchData();
+    } catch (error) {
+        alert(`Failed to reject invite: ${error.message}`);
+    }
   };
 
   return (
@@ -264,16 +273,18 @@ function DashboardScreen({ user, onGoToProfile, onGoToCreateGroup, onSelectGroup
         <button onClick={onGoToProfile}><img src={user.avatar} alt="User Avatar" className="dashboard-avatar" /></button>
       </header>
       <main className="screen-main">
-        {isLoading ? (<p className="loading-text">Loading...</p>) : (
+        {isLoading ? (<p className="loading-text">Loading...</p>) : 
+         error ? (<p className="error-text" style={{color: 'var(--color-danger)', textAlign: 'center'}}>{error}</p>) :
+        (
           <>
             {invites.length > 0 && (
-              <div className="mb-8">
+              <div style={{marginBottom: '2rem'}}>
                 <h2 className="groups-header">Pending Invites</h2>
                 <div className="invite-list">
                   {invites.map(invite => (
-                    <div key={invite._id} className="invite-item justify-between">
-                      <p>{invite.name}</p>
-                      <div className="flex gap-2">
+                    <div key={invite._id} className="invite-item" style={{justifyContent: 'space-between'}}>
+                      <p>Invite to <strong>{invite.group.name}</strong></p>
+                      <div style={{display: 'flex', gap: '0.5rem'}}>
                         <button onClick={() => handleAccept(invite._id)} className="button" style={{width:'auto', padding:'0.5rem 1rem'}}>Accept</button>
                         <button onClick={() => handleReject(invite._id)} className="button" style={{width:'auto', padding:'0.5rem 1rem', backgroundColor: 'var(--color-danger)'}}>Reject</button>
                       </div>
@@ -283,7 +294,7 @@ function DashboardScreen({ user, onGoToProfile, onGoToCreateGroup, onSelectGroup
               </div>
             )}
             <h2 className="groups-header">My Groups</h2>
-            <div className="group-list">{groups.map(group => (<button key={group._id} className="group-item" onClick={() => onSelectGroup(group)}><div className="group-item-content"><p className="group-name">{group.name}</p></div><ChevronRightIcon /></button>))}</div>
+            <div className="group-list">{groups.length > 0 ? groups.map(group => (<button key={group._id} className="group-item" onClick={() => onSelectGroup(group)}><div className="group-item-content"><p className="group-name">{group.name}</p></div><ChevronRightIcon /></button>)) : <p className="empty-text">No groups yet. Create one!</p>}</div>
           </>
         )}
       </main>
@@ -292,8 +303,6 @@ function DashboardScreen({ user, onGoToProfile, onGoToCreateGroup, onSelectGroup
   );
 }
 
-// Other components (ProfileScreen, CreateGroupScreen, etc.) remain largely the same
-// as they don't fetch data directly in this version.
 function ProfileScreen({ user, onBack, onLogout }) {
   return (
     <div className="screen-container">
@@ -310,293 +319,258 @@ function ProfileScreen({ user, onBack, onLogout }) {
   );
 }
 
-function CreateGroupScreen({ onBack }) {
-    const [invitedMembers, setInvitedMembers] = useState([]);
+function CreateGroupScreen({ onBack, onGroupCreated }) {
+    const [groupName, setGroupName] = useState('');
+    const [isLoading, setIsLoading] = useState(false);
 
-    const handleInvite = (user) => {
-        if (!invitedMembers.find(m => m.id === user.id)) {
-            setInvitedMembers([...invitedMembers, user]);
+    const handleCreate = async (event) => {
+        event.preventDefault();
+        if (!groupName.trim()) {
+            alert('Please enter a group name.');
+            return;
         }
-    }
+        setIsLoading(true);
+        try {
+            await api.createGroup({ name: groupName });
+            onGroupCreated();
+        } catch (error) {
+            alert(`Failed to create group: ${error.message}`);
+        } finally {
+            setIsLoading(false);
+        }
+    };
 
     return (
     <div className="screen-container">
-        <header className="screen-header"><button onClick={onBack} className="screen-header-button">Cancel</button><h1 className="screen-header-title">Create Group</h1><button className="screen-header-button">Create</button></header>
+        <header className="screen-header">
+            <button onClick={onBack} className="screen-header-button">Cancel</button>
+            <h1 className="screen-header-title">Create Group</h1>
+            <button onClick={handleCreate} className="screen-header-button" disabled={isLoading}>
+                {isLoading ? 'Creating...' : 'Create'}
+            </button>
+        </header>
         <main className="screen-main">
-            <form className="form-container" style={{maxWidth: 'none', textAlign: 'left'}}>
+            <form className="form-container" style={{maxWidth: 'none', textAlign: 'left'}} onSubmit={handleCreate}>
                 <label className="form-label">Group Name</label>
-                <input className="input" type="text" placeholder="e.g., Elm Street Flat" style={{textAlign: 'left'}} />
-                <label className="form-label" style={{marginTop: '1.5rem'}}>Invite Members</label>
-                <input className="input" type="text" placeholder="Search by username or email" style={{textAlign: 'left'}} />
-                <div className="settlement-list">
-                    {MOCK_USERS_SEARCH.map(user => (
-                        <div key={user.id} className="settlement-item" style={{cursor: 'default', justifyContent: 'space-between'}}>
-                            <div style={{display: 'flex', alignItems: 'center', gap: '0.75rem'}}>
-                                <img src={user.avatar} alt={user.name} className="member-avatar" />
-                                <span style={{fontWeight: 'bold'}}>{user.name}</span>
-                            </div>
-                            <button type="button" onClick={() => handleInvite(user)} className="button" style={{width: 'auto', padding: '0.5rem 1rem', fontSize: '0.875rem'}}>Invite</button>
-                        </div>
-                    ))}
-                </div>
-                {invitedMembers.length > 0 && (
-                <><h3 className="groups-header" style={{marginTop: '2rem'}}>Invited</h3><div className="member-list">{invitedMembers.map(member => (<img key={member.id} src={member.avatar} alt={member.name} className="member-avatar" title={member.name} />))}</div></>
-                )}
+                <input 
+                    className="input" 
+                    type="text" 
+                    placeholder="e.g., Elm Street Flat" 
+                    style={{textAlign: 'left'}}
+                    value={groupName}
+                    onChange={(e) => setGroupName(e.target.value)}
+                />
             </form>
         </main>
     </div>
     );
 }
 
-function GroupDetailScreen({ group, onBack, onGoToRecordPayment, onSelectBalance, onGoToAddExpense, onSelectExpense, onGoToInvite }) {
+function GroupDetailScreen({ user, group, onBack, navigateTo }) {
     const [activeTab, setActiveTab] = useState('expenses');
-    const renderTabContent = () => {
-        if (activeTab === 'balances') { return <BalancesView balances={group.balances} onSelectBalance={onSelectBalance} />; }
-        if (activeTab === 'settleUp') { return <SettleUpView settlements={group.settlements} onGoToRecordPayment={onGoToRecordPayment} />; }
-        if (activeTab === 'whiteboard') { return <WhiteboardView initialItems={group.whiteboard} />; }
-        return <ExpensesView expenses={group.expenses} onSelectExpense={onSelectExpense} />;
-    }
-    return (
-        <div className="screen-container">
-            <header className="screen-header"><button onClick={onBack} className="screen-header-button">&lt; Back</button><h1 className="screen-header-title">{group.name}</h1><button onClick={onGoToInvite} className="screen-header-button">Invite</button></header>
-            <div className="group-detail-members"><h3 className="groups-header">Members</h3><div className="member-list">{group.members.map(member => (<img key={member.id} src={member.avatar} alt={member.name} className="member-avatar" title={member.name} />))}</div></div>
-            <nav className="tab-nav">
-                <button className={activeTab === 'expenses' ? 'tab-button-active' : 'tab-button'} onClick={() => setActiveTab('expenses')}>Expenses</button>
-                <button className={activeTab === 'balances' ? 'tab-button-active' : 'tab-button'} onClick={() => setActiveTab('balances')}>Balances</button>
-                <button className={activeTab === 'settleUp' ? 'tab-button-active' : 'tab-button'} onClick={() => setActiveTab('settleUp')}>Settle Up</button>
-                <button className={activeTab === 'whiteboard' ? 'tab-button-active' : 'tab-button'} onClick={() => setActiveTab('whiteboard')}>Whiteboard</button>
-            </nav>
-            <main className="screen-main">{renderTabContent()}</main>
-            <footer className="screen-footer"><button className="button" onClick={onGoToAddExpense}><PlusIcon /> Add Expense</button></footer>
-        </div>
-    );
-}
+    const [groupDetails, setGroupDetails] = useState(null);
+    const [isLoading, setIsLoading] = useState(true);
+    const [error, setError] = useState(null);
 
-function ExpensesView({ expenses, onSelectExpense }) {
-    return (<div className="expense-list">{expenses.length > 0 ? expenses.map(exp => (<button key={exp.id} className="expense-item" onClick={() => onSelectExpense(exp)}><div className="expense-item-content"><p className="expense-description">{exp.description}</p><p className="expense-details">{exp.payer} paid ${exp.total.toFixed(2)}</p></div></button>)) : <p className="empty-text">No expenses yet.</p>}</div>);
-}
-
-function BalancesView({ balances, onSelectBalance }) {
-    return (<div className="balance-list">{balances.length > 0 ? balances.map((bal, index) => { const isOwedToYou = bal.to === 'You'; return (<button key={index} className="balance-item" onClick={() => onSelectBalance(bal)}>{isOwedToYou ? (<p className="balance-text"><span style={{fontWeight: 'bold'}}>{bal.from}</span> owes you <span className="text-owed">${bal.amount.toFixed(2)}</span></p>) : (<p className="balance-text">You owe <span style={{fontWeight: 'bold'}}>{bal.to}</span> <span className="text-owes">${bal.amount.toFixed(2)}</span></p>)}</button>)}) : <p className="empty-text">Everyone is settled up!</p>}</div>);
-}
-
-function SettleUpView({ settlements, onGoToRecordPayment }) {
-    return (<div className="settlement-list"><button onClick={onGoToRecordPayment} className="button" style={{backgroundColor: 'var(--color-secondary)', marginBottom: '1.5rem'}}>Record a Payment</button><h3 className="groups-header">History</h3>{settlements.length > 0 ? settlements.map((settle, index) => (<div key={index} className="settlement-item" style={{cursor: 'default'}}><p className="settlement-text"><span style={{fontWeight: 'bold'}}>{settle.from}</span> paid <span style={{fontWeight: 'bold'}}>{settle.to}</span> <span style={{fontWeight: 'bold'}}>${settle.amount.toFixed(2)}</span></p></div>)) : <p className="empty-text">No settlements recorded yet.</p>}</div>);
-}
-
-function RecordPaymentScreen({ group, onBack }) {
-    const [amount, setAmount] = useState('');
-    const [receiptName, setReceiptName] = useState('');
-    const debts = group.balances.filter(b => b.from === 'You');
-
-    const handleFileChange = (e) => {
-        if (e.target.files && e.target.files[0]) {
-            setReceiptName(e.target.files[0].name);
+    const fetchData = async () => {
+        try {
+            setIsLoading(true);
+            setError(null);
+            const [details, summary, expenses] = await Promise.all([
+                api.getGroupDetails(group._id),
+                api.getGroupSummary(group._id),
+                api.getGroupExpenses(group._id)
+            ]);
+            setGroupDetails({ ...details, summary, expenses: expenses.expenses });
+        } catch (error) {
+            console.error("Failed to fetch group details", error);
+            setError(error.message);
+        } finally {
+            setIsLoading(false);
         }
     };
 
+    useEffect(() => {
+        fetchData();
+    }, [group._id]);
+
+    if (isLoading) return <div className="screen-container"><header className="screen-header"><button onClick={onBack} className="screen-header-button">&lt; Back</button></header><div className="loading-text">Loading Group...</div></div>;
+    if (error) return <div className="screen-container"><header className="screen-header"><button onClick={onBack} className="screen-header-button">&lt; Back</button></header><div className="empty-text" style={{color: 'var(--color-danger)'}}>Error: {error}</div></div>;
+    if (!groupDetails) return <div className="screen-container"><header className="screen-header"><button onClick={onBack} className="screen-header-button">&lt; Back</button></header><div className="empty-text">Could not load group.</div></div>;
+
+    const renderTabContent = () => {
+        if (activeTab === 'balances') { return <BalancesView summary={groupDetails.summary} user={user} />; }
+        return <ExpensesView expenses={groupDetails.expenses} members={groupDetails.members} />;
+    }
+
     return (
         <div className="screen-container">
-            <header className="screen-header"><button onClick={onBack} className="screen-header-button">Cancel</button><h1 className="screen-header-title">Record a Payment</h1><button className="screen-header-button">Save</button></header>
-            <main className="screen-main">
-            <form className="form-container" style={{maxWidth: 'none', textAlign: 'left'}}>
-                <label className="form-label">You paid...</label>
-                <select className="input select" style={{textAlign: 'left'}}>
-                    {debts.length > 0 ? debts.map(debt => <option key={debt.to} value={debt.to}>{debt.to}</option>) : <option disabled>No one to pay</option>}
-                </select>
-                <label className="form-label">Amount</label>
-                <input className="input" style={{textAlign: 'left'}} type="number" placeholder="$0.00" value={amount} onChange={e => setAmount(e.target.value)} />
-                <div className="portion-buttons">
-                    <button type="button" className="portion-button" onClick={() => setAmount((debts[0]?.amount * 0.25).toFixed(2))}>25%</button>
-                    <button type="button" className="portion-button" onClick={() => setAmount((debts[0]?.amount * 0.50).toFixed(2))}>50%</button>
-                    <button type="button" className="portion-button" onClick={() => setAmount(debts[0]?.amount.toFixed(2))}>100%</button>
-                </div>
-                <label className="form-label" style={{marginTop: '1rem'}}>Attach Receipt (Optional)</label>
-                 <label className="file-upload-box"><UploadIcon /><p>Click to upload</p><input type="file" onChange={handleFileChange}/></label>
-                 {receiptName && <p className="file-upload-success-text">Attached: {receiptName}</p>}
-            </form>
-            </main>
+            <header className="screen-header"><button onClick={onBack} className="screen-header-button">&lt; Back</button><h1 className="screen-header-title">{groupDetails.name}</h1><button className="screen-header-button">Invite</button></header>
+            <div className="group-detail-members"><h3 className="groups-header">Members</h3><div className="member-list">{groupDetails.members.map(member => (<img key={member._id} src={member.avatar || getDefaultAvatar(member.username)} alt={member.username} className="member-avatar" title={member.username} />))}</div></div>
+            <nav className="tab-nav"><button className={activeTab === 'expenses' ? 'tab-button-active' : 'tab-button'} onClick={() => setActiveTab('expenses')}>Expenses</button><button className={activeTab === 'balances' ? 'tab-button-active' : 'tab-button'} onClick={() => setActiveTab('balances')}>Balances</button></nav>
+            <main className="screen-main">{renderTabContent()}</main>
+            <footer className="screen-footer"><button className="button" onClick={() => navigateTo('addExpense', groupDetails)}><PlusIcon /> Add Expense</button></footer>
         </div>
     );
 }
 
-function AddExpenseScreen({ group, onBack }) {
-     const [receiptName, setReceiptName] = useState('');
-     const handleFileChange = (e) => {
-        if (e.target.files && e.target.files[0]) {
-            setReceiptName(e.target.files[0].name);
+
+function ExpensesView({ expenses, members }) {
+    const getPayerName = (expense) => {
+        const contributor = expense.contributors[0];
+        if (!contributor) return 'Unknown';
+        const member = members.find(m => m._id === contributor.user);
+        return member ? member.username : 'Unknown';
+    };
+
+    return (
+        <div className="expense-list">
+            {expenses && expenses.length > 0 ? expenses.map(exp => (
+                <button key={exp._id} className="expense-item">
+                    <div className="expense-item-content">
+                        <p className="expense-description">{exp.description}</p>
+                        <p className="expense-details">{getPayerName(exp)} paid ${exp.amount.toFixed(2)}</p>
+                    </div>
+                </button>
+            )) : <p className="empty-text">No expenses yet.</p>}
+        </div>
+    );
+}
+
+function BalancesView({ summary, user }) {
+    const { youOwe, owedToYou, othersOweEachOther } = summary;
+
+    return (
+        <div className="balance-list">
+            {(youOwe.length === 0 && owedToYou.length === 0 && othersOweEachOther.length === 0) && <p className="empty-text">Everyone is settled up!</p>}
+            
+            {youOwe.map((bal, index) => (
+                <button key={`owe-${index}`} className="balance-item">
+                    <p className="balance-text">You owe <span style={{fontWeight: 'bold'}}>{bal.toName}</span> <span className="text-owes">${bal.amount.toFixed(2)}</span></p>
+                </button>
+            ))}
+
+            {owedToYou.map((bal, index) => (
+                 <button key={`owed-${index}`} className="balance-item">
+                    <p className="balance-text"><span style={{fontWeight: 'bold'}}>{bal.fromName}</span> owes you <span className="text-owed">${bal.amount.toFixed(2)}</span></p>
+                </button>
+            ))}
+
+            {othersOweEachOther.length > 0 && (
+                <>
+                    <h3 className="groups-header" style={{marginTop: '1.5rem'}}>Other Balances</h3>
+                    {othersOweEachOther.map((bal, index) => (
+                        <div key={`other-${index}`} className="balance-item" style={{cursor: 'default'}}>
+                            <p className="balance-text"><span style={{fontWeight: 'bold'}}>{bal.fromName}</span> owes <span style={{fontWeight: 'bold'}}>{bal.toName}</span> <span className="text-owes">${bal.amount.toFixed(2)}</span></p>
+                        </div>
+                    ))}
+                </>
+            )}
+        </div>
+    );
+}
+
+function AddExpenseScreen({ group, onBack, showNotification, user }) {
+    const [description, setDescription] = useState('');
+    const [amount, setAmount] = useState('');
+    const [splitType, setSplitType] = useState('equal');
+    const [splits, setSplits] = useState({});
+    const [isLoading, setIsLoading] = useState(false);
+
+    useEffect(() => {
+        // Initialize splits state when component mounts or members change
+        const initialSplits = {};
+        group.members.forEach(member => {
+            initialSplits[member._id] = '';
+        });
+        setSplits(initialSplits);
+    }, [group.members]);
+
+    const handleSplitChange = (userId, value) => {
+        setSplits(prev => ({ ...prev, [userId]: value }));
+    };
+
+    const handleSubmit = async (e) => {
+        e.preventDefault();
+        if (!description || !amount) {
+            alert("Please fill out description and amount.");
+            return;
+        }
+
+        const payload = {
+            description,
+            amount: parseFloat(amount),
+            groupId: group._id,
+            splitType,
+            contributors: [{ user: user._id, amount: parseFloat(amount) }],
+            splits: []
+        };
+
+        if (splitType !== 'equal') {
+            payload.splits = Object.entries(splits)
+                .filter(([, value]) => value > 0)
+                .map(([userId, value]) => ({ user: userId, amount: parseFloat(value) }));
+            
+            const totalSplit = payload.splits.reduce((sum, s) => sum + s.amount, 0);
+            if (splitType === 'custom' && totalSplit !== payload.amount) {
+                alert(`Custom splits must add up to the total amount of $${payload.amount}. Current total: $${totalSplit}`);
+                return;
+            }
+            if (splitType === 'percentage' && totalSplit !== 100) {
+                alert(`Percentages must add up to 100%. Current total: ${totalSplit}%`);
+                return;
+            }
+        }
+        
+        setIsLoading(true);
+        try {
+            await api.addExpense(payload);
+            showNotification('Expense added successfully!');
+            onBack();
+        } catch (error) {
+            alert(`Failed to add expense: ${error.message}`);
+        } finally {
+            setIsLoading(false);
         }
     };
 
      return (
         <div className="screen-container">
-            <header className="screen-header"><button onClick={onBack} className="screen-header-button">Cancel</button><h1 className="screen-header-title">Add an Expense</h1><button className="screen-header-button">Save</button></header>
+            <header className="screen-header"><button onClick={onBack} className="screen-header-button">Cancel</button><h1 className="screen-header-title">Add an Expense</h1><button onClick={handleSubmit} className="screen-header-button" disabled={isLoading}>{isLoading ? 'Saving...' : 'Save'}</button></header>
             <main className="screen-main">
-             <form className="form-container" style={{maxWidth: 'none', textAlign: 'left'}}>
+             <form className="form-container" style={{maxWidth: 'none', textAlign: 'left'}} onSubmit={handleSubmit}>
                 <label className="form-label">Description</label>
-                <input className="input" type="text" placeholder="e.g., Groceries" style={{textAlign: 'left'}} />
+                <input className="input" type="text" placeholder="e.g., Groceries" style={{textAlign: 'left'}} value={description} onChange={e => setDescription(e.target.value)} />
                  <label className="form-label">Amount</label>
-                <input className="input" type="number" placeholder="$0.00" style={{textAlign: 'left'}}/>
-                 <label className="form-label">Paid by</label>
-                 <select className="input select" style={{textAlign: 'left'}}>
-                    {group.members.map(member => <option key={member.id} value={member.name}>{member.name}</option>)}
+                <input className="input" type="number" placeholder="$0.00" style={{textAlign: 'left'}} value={amount} onChange={e => setAmount(e.target.value)} />
+                <label className="form-label">Split</label>
+                 <select className="input select" style={{textAlign: 'left'}} value={splitType} onChange={e => setSplitType(e.target.value)}>
+                    <option value="equal">Equally</option>
+                    <option value="percentage">By Percentage</option>
+                    <option value="custom">By Custom Amount</option>
                 </select>
-                <label className="form-label" style={{marginTop: '1rem'}}>Attach Bill (Optional)</label>
-                <label className="file-upload-box"><UploadIcon /><p>Click to upload</p><input type="file" onChange={handleFileChange}/></label>
-                {receiptName && <p className="file-upload-success-text">Attached: {receiptName}</p>}
+
+                {(splitType === 'percentage' || splitType === 'custom') && (
+                    <div className="split-container">
+                        <h3 className="groups-header">Split Details</h3>
+                        {group.members.map(member => (
+                            <div key={member._id} className="split-item">
+                                <label className="split-label">{member.username}</label>
+                                <input 
+                                    type="number" 
+                                    className="split-input"
+                                    placeholder={splitType === 'percentage' ? '%' : '$'}
+                                    value={splits[member._id] || ''}
+                                    onChange={(e) => handleSplitChange(member._id, e.target.value)}
+                                />
+                            </div>
+                        ))}
+                    </div>
+                )}
             </form>
             </main>
         </div>
     )
 }
-
-function BalanceDetailScreen({ balance, onBack }) {
-    const isOwedToYou = balance.to === 'You';
-    return (
-        <div className="screen-container">
-            <header className="screen-header"><button onClick={onBack} className="screen-header-button">&lt; Back</button><h1 className="screen-header-title">Balance Details</h1><div></div></header>
-            <main className="screen-main">
-                <div className="balance-container">
-                    {isOwedToYou ? (<p className="balance-amount"><span style={{fontWeight:'normal'}}>{balance.from} owes you </span><span className="text-owed">${balance.amount.toFixed(2)}</span></p>)
-                                 : (<p className="balance-amount">You owe <span style={{fontWeight:'normal'}}>{balance.to} </span><span className="text-owes">${balance.amount.toFixed(2)}</span></p>)}
-                </div>
-                <h3 className="groups-header">Breakdown from Expenses</h3>
-                <div className="expense-list">
-                    {balance.details.map((item, index) => (
-                        <div key={index} className="expense-item" style={{cursor: 'default'}}>
-                            <div className="expense-item-content">
-                                <p className="expense-description">{item.desc}</p>
-                            </div>
-                            <span className={isOwedToYou ? "text-owed" : "text-owes"}>${item.amount.toFixed(2)}</span>
-                        </div>
-                    ))}
-                </div>
-            </main>
-        </div>
-    );
-}
-
-function ExpenseDetailScreen({ expense, onBack }) {
-    return (
-        <div className="screen-container">
-            <header className="screen-header">
-                <button onClick={onBack} className="screen-header-button">&lt; Back</button>
-                <h1 className="screen-header-title">Expense Details</h1>
-                <button className="screen-header-button" style={{color: 'var(--color-danger)'}}>Delete</button>
-            </header>
-            <main className="screen-main">
-                <div className="balance-container" style={{marginBottom: '1.5rem', textAlign: 'left'}}>
-                    <p className="balance-label">{expense.category}</p>
-                    <h2 className="balance-amount" style={{fontSize: '2.25rem'}}>{expense.description}</h2>
-                    <p className="title" style={{fontSize: '3rem', margin: '0.5rem 0'}}>${expense.total.toFixed(2)}</p>
-                    <p className="balance-label">Paid by {expense.payer} on {expense.date}</p>
-                </div>
-
-                {expense.attachmentUrl && (
-                    <div style={{marginBottom: '1.5rem'}}>
-                        <h3 className="groups-header">Receipt</h3>
-                        <img src={expense.attachmentUrl} alt="Receipt" style={{width: '100%', borderRadius: '0.5rem', border: '1px solid var(--color-border)'}}
-                             onError={(e) => { e.target.onerror = null; e.target.src='https://placehold.co/600x800/eee/ccc?text=Image+Not+Found'; }} />
-                    </div>
-                )}
-
-                <div>
-                     <h3 className="groups-header">Split Between</h3>
-                     <div className="expense-list">
-                        {expense.involved.map((person, index) => (
-                            <div key={index} className="expense-item" style={{cursor: 'default', justifyContent: 'space-between'}}>
-                                <p className="expense-description">{person}</p>
-                                <span className="text-owes">${(expense.total / expense.involved.length).toFixed(2)}</span>
-                            </div>
-                        ))}
-                     </div>
-                </div>
-            </main>
-        </div>
-    );
-}
-
-function InviteScreen({ group, onBack }) {
-    return (
-        <div className="screen-container">
-            <header className="screen-header"><button onClick={onBack} className="screen-header-button">&lt; Back</button><h1 className="screen-header-title">Invite to {group.name}</h1><div></div></header>
-            <main className="screen-main">
-                <form className="form-container" style={{maxWidth: 'none', textAlign: 'left'}}>
-                    <label className="form-label">Search by username or email</label>
-                    <input className="input" type="text" placeholder="e.g., sarah@example.com" style={{textAlign: 'left'}} />
-                    <button className="button" type="button" style={{backgroundColor: 'var(--color-secondary)'}}>Search</button>
-                </form>
-
-                <div className="settlement-list" style={{marginTop: '2rem'}}>
-                    <h3 className="groups-header">Search Results</h3>
-                    {MOCK_USERS_SEARCH.map(user => (
-                        <div key={user.id} className="invite-item" style={{cursor: 'default', justifyContent: 'space-between'}}>
-                            <div style={{display: 'flex', alignItems: 'center', gap: '0.75rem'}}>
-                                <img src={user.avatar} alt={user.name} className="member-avatar" />
-                                <span style={{fontWeight: 'bold'}}>{user.name}</span>
-                            </div>
-                            <button type="button" className="button" style={{width: 'auto', padding: '0.5rem 1rem', fontSize: '0.875rem'}}>Invite</button>
-                        </div>
-                    ))}
-                </div>
-            </main>
-        </div>
-    );
-}
-
-function WhiteboardView({ initialItems }) {
-    const [items, setItems] = useState(initialItems);
-    const [newItemText, setNewItemText] = useState('');
-
-    const handleToggleItem = (id) => {
-        setItems(items.map(item => 
-            item.id === id ? { ...item, completed: !item.completed } : item
-        ));
-    };
-
-    const handleAddItem = (e) => {
-        e.preventDefault();
-        if (!newItemText.trim()) return;
-        const newItem = {
-            id: Date.now(),
-            text: newItemText,
-            completed: false
-        };
-        setItems([...items, newItem]);
-        setNewItemText('');
-    };
-
-    return (
-        <div>
-            <div className="whiteboard-list">
-                {items.map(item => (
-                    <div key={item.id} className="whiteboard-item" onClick={() => handleToggleItem(item.id)}>
-                        <input 
-                            type="checkbox" 
-                            className="whiteboard-checkbox"
-                            checked={item.completed}
-                            readOnly
-                        />
-                        <span className={item.completed ? 'whiteboard-text-completed' : 'whiteboard-text'}>
-                            {item.text}
-                        </span>
-                    </div>
-                ))}
-            </div>
-            <form className="add-item-form" onSubmit={handleAddItem}>
-                <input 
-                    type="text" 
-                    className="input" 
-                    style={{textAlign: 'left', flexGrow: 1}}
-                    placeholder="Add an item..."
-                    value={newItemText}
-                    onChange={(e) => setNewItemText(e.target.value)}
-                />
-                <button className="button" type="submit" style={{width: 'auto'}}>Add</button>
-            </form>
-        </div>
-    );
-}
-
 
 export default App;
