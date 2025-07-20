@@ -1,6 +1,4 @@
 /* Global styles for the entire application */
-@import "tailwindcss";
-/* Global styles for the entire application */
 
 :root {
   /* Color Palette */
@@ -476,7 +474,9 @@ body {
     display: flex;
     flex-direction: column;
     gap: 0.75rem;
-    margin-top: 1rem;
+    margin-top: 1.5rem;
+    border-top: 1px solid var(--color-border);
+    padding-top: 1.5rem;
 }
 .split-item {
     display: flex;
@@ -487,10 +487,21 @@ body {
     flex-basis: 40%;
     text-align: right;
     font-weight: 600;
+    color: var(--color-text-medium);
 }
 .split-input {
     flex-grow: 1;
     padding: 0.5rem;
     border: 1px solid var(--color-border);
     border-radius: 0.5rem;
+    text-align: left;
+}
+.contributor-item {
+    display: flex;
+    gap: 0.5rem;
+    align-items: center;
+    margin-bottom: 0.5rem;
+}
+.contributor-item .select, .contributor-item .input {
+    margin-bottom: 0;
 }

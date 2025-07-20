@@ -11,18 +11,25 @@ const API_BASE_URL = 'https://backend-rnii.onrender.com/api';
 const api = {
   async request(endpoint, { body, ...customConfig } = {}) {
     const token = localStorage.getItem('divvy_token');
-    const headers = { 'Content-Type': 'application/json' };
+    const headers = {};
+    if (!(body instanceof FormData)) {
+        headers['Content-Type'] = 'application/json';
+    }
+
     if (token) {
       headers.Authorization = `Bearer ${token}`;
     }
+    
     const config = {
       method: body ? 'POST' : 'GET',
       ...customConfig,
       headers: { ...headers, ...customConfig.headers },
     };
+
     if (body) {
-      config.body = JSON.stringify(body);
+      config.body = body instanceof FormData ? body : JSON.stringify(body);
     }
+
     const response = await fetch(`${API_BASE_URL}${endpoint}`, config);
     const data = await response.json();
     if (!response.ok) {
@@ -36,11 +43,12 @@ const api = {
   createGroup(body) { return this.request('/user/groups', { body }); },
   getGroupDetails(groupId) { return this.request(`/groups/${groupId}`); },
   getGroupExpenses(groupId) { return this.request(`/expenses/group/${groupId}`); },
+  getExpenseDetails(groupId, expenseId) { return this.request(`/expenses/${groupId}/expense/${expenseId}`); },
   getGroupSummary(groupId) { return this.request(`/groups/${groupId}/summary/raw`); },
   getPendingInvites() { return this.request('/user/groups/invites'); },
   acceptInvite(inviteId) { return this.request(`/user/groups/${inviteId}/accept`, { method: 'POST' }); },
   rejectInvite(inviteId) { return this.request(`/user/groups/${inviteId}/reject`, { method: 'POST' }); },
-  addExpense(body) { return this.request('/expenses', { body }); },
+  addExpense(body) { return this.request('/expenses', { body, method: 'POST' }); },
 };
 
 // --- Helper Function ---
@@ -119,6 +127,8 @@ function App() {
           return <GroupDetailScreen user={user} group={pageData} onBack={() => navigateTo('dashboard')} navigateTo={navigateTo} />;
         case 'addExpense':
             return <AddExpenseScreen group={pageData} onBack={() => navigateTo('groupDetail', pageData)} showNotification={showNotification} user={user} />;
+        case 'expenseDetail':
+            return <ExpenseDetailScreen expense={pageData} onBack={() => navigateTo('groupDetail', { _id: pageData.group })} />;
         default:
           return <DashboardScreen user={user} onGoToProfile={() => navigateTo('profile')} onGoToCreateGroup={() => navigateTo('createGroup')} onSelectGroup={(group) => navigateTo('groupDetail', group)} />;
       }
@@ -400,7 +410,7 @@ function GroupDetailScreen({ user, group, onBack, navigateTo }) {
 
     const renderTabContent = () => {
         if (activeTab === 'balances') { return <BalancesView summary={groupDetails.summary} user={user} />; }
-        return <ExpensesView expenses={groupDetails.expenses} members={groupDetails.members} />;
+        return <ExpensesView expenses={groupDetails.expenses} members={groupDetails.members} user={user} onSelectExpense={(exp) => navigateTo('expenseDetail', exp)} />;
     }
 
     return (
@@ -415,18 +425,31 @@ function GroupDetailScreen({ user, group, onBack, navigateTo }) {
 }
 
 
-function ExpensesView({ expenses, members }) {
+function ExpensesView({ expenses, members, user, onSelectExpense }) {
     const getPayerName = (expense) => {
-        const contributor = expense.contributors[0];
-        if (!contributor) return 'Unknown';
-        const member = members.find(m => m._id === contributor.user);
-        return member ? member.username : 'Unknown';
+        if (!expense.contributors || expense.contributors.length === 0) return 'Unknown';
+        
+        const payerNames = expense.contributors.map(c => {
+            const member = members.find(m => m._id === c.user._id);
+            return member ? (member._id === user._id ? 'You' : member.username) : 'Unknown';
+        });
+
+        if (payerNames.length === 1) {
+            return payerNames[0];
+        } else if (payerNames.length > 1) {
+            const userIndex = payerNames.indexOf('You');
+            if (userIndex !== -1) {
+                return `You & ${payerNames.length - 1} other${payerNames.length > 2 ? 's' : ''}`;
+            }
+            return `${payerNames[0]} & others`;
+        }
+        return 'Unknown';
     };
 
     return (
         <div className="expense-list">
             {expenses && expenses.length > 0 ? expenses.map(exp => (
-                <button key={exp._id} className="expense-item">
+                <button key={exp._id} className="expense-item" onClick={() => onSelectExpense(exp)}>
                     <div className="expense-item-content">
                         <p className="expense-description">{exp.description}</p>
                         <p className="expense-details">{getPayerName(exp)} paid ${exp.amount.toFixed(2)}</p>
@@ -475,19 +498,50 @@ function AddExpenseScreen({ group, onBack, showNotification, user }) {
     const [amount, setAmount] = useState('');
     const [splitType, setSplitType] = useState('equal');
     const [splits, setSplits] = useState({});
+    const [contributors, setContributors] = useState([{ user: user._id, amount: '' }]);
     const [isLoading, setIsLoading] = useState(false);
+    const [receiptFile, setReceiptFile] = useState(null);
+    const [participants, setParticipants] = useState(() => group.members.map(m => m._id));
 
     useEffect(() => {
-        // Initialize splits state when component mounts or members change
         const initialSplits = {};
         group.members.forEach(member => {
             initialSplits[member._id] = '';
         });
         setSplits(initialSplits);
     }, [group.members]);
+    
+    useEffect(() => {
+        if (contributors.length === 1) {
+            setContributors(prev => [{ ...prev[0], amount: amount || '' }]);
+        } else {
+            const total = contributors.reduce((sum, c) => sum + (parseFloat(c.amount) || 0), 0);
+            setAmount(total > 0 ? total.toFixed(2) : '');
+        }
+    }, [amount]);
+
+    const handleAmountChange = (e) => {
+        setAmount(e.target.value);
+    }
 
     const handleSplitChange = (userId, value) => {
         setSplits(prev => ({ ...prev, [userId]: value }));
+    };
+
+    const handleContributorChange = (index, field, value) => {
+        const newContributors = [...contributors];
+        newContributors[index][field] = value;
+        setContributors(newContributors);
+    };
+
+    const addContributor = () => {
+        setContributors([...contributors, { user: '', amount: '' }]);
+    };
+    
+    const handleFileChange = (e) => {
+        if (e.target.files && e.target.files[0]) {
+            setReceiptFile(e.target.files[0]);
+        }
     };
 
     const handleSubmit = async (e) => {
@@ -497,28 +551,44 @@ function AddExpenseScreen({ group, onBack, showNotification, user }) {
             return;
         }
 
+        const finalContributors = contributors.map(c => ({...c, amount: parseFloat(c.amount)})).filter(c => c.amount > 0 && c.user);
+        const totalContribution = finalContributors.reduce((sum, c) => sum + c.amount, 0);
+
+        if (Math.abs(totalContribution - parseFloat(amount)) > 0.01) {
+            alert(`Total contributions ($${totalContribution.toFixed(2)}) must equal the expense amount ($${amount}).`);
+            return;
+        }
+
         const payload = {
             description,
             amount: parseFloat(amount),
             groupId: group._id,
             splitType,
-            contributors: [{ user: user._id, amount: parseFloat(amount) }],
-            splits: []
+            contributors: finalContributors,
+            participants,
         };
 
-        if (splitType !== 'equal') {
-            payload.splits = Object.entries(splits)
-                .filter(([, value]) => value > 0)
+        if (splitType === 'equal') {
+            payload.splits = [];
+        } else {
+            const splitValues = Object.entries(splits)
+                .filter(([, value]) => parseFloat(value) > 0)
                 .map(([userId, value]) => ({ user: userId, amount: parseFloat(value) }));
             
-            const totalSplit = payload.splits.reduce((sum, s) => sum + s.amount, 0);
-            if (splitType === 'custom' && totalSplit !== payload.amount) {
-                alert(`Custom splits must add up to the total amount of $${payload.amount}. Current total: $${totalSplit}`);
+            const totalSplit = splitValues.reduce((sum, s) => sum + s.amount, 0);
+
+            if (splitType === 'custom' && Math.abs(totalSplit - payload.amount) > 0.01) {
+                alert(`Custom splits must add up to the total amount of $${payload.amount}. Current total: $${totalSplit.toFixed(2)}`);
                 return;
             }
-            if (splitType === 'percentage' && totalSplit !== 100) {
-                alert(`Percentages must add up to 100%. Current total: ${totalSplit}%`);
-                return;
+            if (splitType === 'percentage') {
+                if (Math.abs(totalSplit - 100) > 0.01) {
+                    alert(`Percentages must add up to 100%. Current total: ${totalSplit}%`);
+                    return;
+                }
+                payload.splits = splitValues.map(s => ({ ...s, amount: (payload.amount * s.amount) / 100 }));
+            } else {
+                payload.splits = splitValues;
             }
         }
         
@@ -542,20 +612,47 @@ function AddExpenseScreen({ group, onBack, showNotification, user }) {
                 <label className="form-label">Description</label>
                 <input className="input" type="text" placeholder="e.g., Groceries" style={{textAlign: 'left'}} value={description} onChange={e => setDescription(e.target.value)} />
                  <label className="form-label">Amount</label>
-                <input className="input" type="number" placeholder="$0.00" style={{textAlign: 'left'}} value={amount} onChange={e => setAmount(e.target.value)} />
-                <label className="form-label">Split</label>
+                <input className="input" type="number" placeholder="$0.00" style={{textAlign: 'left'}} value={amount} onChange={handleAmountChange} readOnly={contributors.length > 1} />
+                
+                <div className="split-container" style={{borderTop: 'none', paddingTop: 0}}>
+                    <h3 className="groups-header">Paid By</h3>
+                    {contributors.map((c, index) => (
+                        <div key={index} className="contributor-item">
+                            <select className="input select" style={{textAlign: 'left'}} value={c.user} onChange={e => handleContributorChange(index, 'user', e.target.value)}>
+                                <option value="">Select Member</option>
+                                {group.members.map(m => <option key={m._id} value={m._id}>{m._id === user._id ? 'You' : m.username}</option>)}
+                            </select>
+                            <input type="number" className="input" placeholder="$0.00" style={{textAlign: 'left'}} value={c.amount} onChange={e => handleContributorChange(index, 'amount', e.target.value)} />
+                        </div>
+                    ))}
+                    <button type="button" className="link-button" onClick={addContributor}>+ Add another payer</button>
+                </div>
+
+                <label className="form-label" style={{marginTop: '1.5rem'}}>Split</label>
                  <select className="input select" style={{textAlign: 'left'}} value={splitType} onChange={e => setSplitType(e.target.value)}>
                     <option value="equal">Equally</option>
                     <option value="percentage">By Percentage</option>
                     <option value="custom">By Custom Amount</option>
                 </select>
 
+                <div className="split-container">
+                    <h3 className="groups-header">Participants</h3>
+                    {group.members.map(member => (
+                        <div key={member._id} className="split-item" style={{justifyContent: 'space-between'}}>
+                             <label>{member._id === user._id ? 'You' : member.username}</label>
+                             <input type="checkbox" checked={participants.includes(member._id)} onChange={() => {
+                                 setParticipants(prev => prev.includes(member._id) ? prev.filter(id => id !== member._id) : [...prev, member._id])
+                             }} />
+                        </div>
+                    ))}
+                </div>
+
                 {(splitType === 'percentage' || splitType === 'custom') && (
                     <div className="split-container">
                         <h3 className="groups-header">Split Details</h3>
-                        {group.members.map(member => (
+                        {group.members.filter(m => participants.includes(m._id)).map(member => (
                             <div key={member._id} className="split-item">
-                                <label className="split-label">{member.username}</label>
+                                <label className="split-label">{member._id === user._id ? 'You' : member.username}</label>
                                 <input 
                                     type="number" 
                                     className="split-input"
@@ -567,10 +664,53 @@ function AddExpenseScreen({ group, onBack, showNotification, user }) {
                         ))}
                     </div>
                 )}
+                 <label className="form-label" style={{marginTop: '1rem'}}>Attach Bill (Optional)</label>
+                <label className="file-upload-box"><UploadIcon /><p>Click to upload</p><input type="file" onChange={handleFileChange}/></label>
+                {receiptFile && <p className="file-upload-success-text">Attached: {receiptFile.name}</p>}
             </form>
             </main>
         </div>
     )
+}
+
+function ExpenseDetailScreen({ expense, onBack }) {
+    return (
+        <div className="screen-container">
+            <header className="screen-header">
+                <button onClick={onBack} className="screen-header-button">&lt; Back</button>
+                <h1 className="screen-header-title">Expense Details</h1>
+                <button className="screen-header-button" style={{color: 'var(--color-danger)'}}>Delete</button>
+            </header>
+            <main className="screen-main">
+                <div className="balance-container" style={{marginBottom: '1.5rem', textAlign: 'left'}}>
+                    <p className="balance-label">{expense.category}</p>
+                    <h2 className="balance-amount" style={{fontSize: '2.25rem'}}>{expense.description}</h2>
+                    <p className="title" style={{fontSize: '3rem', margin: '0.5rem 0'}}>${expense.total.toFixed(2)}</p>
+                    <p className="balance-label">Paid by {expense.payer} on {expense.date}</p>
+                </div>
+
+                {expense.attachmentUrl && (
+                    <div style={{marginBottom: '1.5rem'}}>
+                        <h3 className="groups-header">Receipt</h3>
+                        <img src={expense.attachmentUrl} alt="Receipt" style={{width: '100%', borderRadius: '0.5rem', border: '1px solid var(--color-border)'}}
+                             onError={(e) => { e.target.onerror = null; e.target.src='https://placehold.co/600x800/eee/ccc?text=Image+Not+Found'; }} />
+                    </div>
+                )}
+
+                <div>
+                     <h3 className="groups-header">Split Between</h3>
+                     <div className="expense-list">
+                        {expense.involved.map((person, index) => (
+                            <div key={index} className="expense-item" style={{cursor: 'default', justifyContent: 'space-between'}}>
+                                <p className="expense-description">{person}</p>
+                                <span className="text-owes">${(expense.total / expense.involved.length).toFixed(2)}</span>
+                            </div>
+                        ))}
+                     </div>
+                </div>
+            </main>
+        </div>
+    );
 }
 
 export default App;
