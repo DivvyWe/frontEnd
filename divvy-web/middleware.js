@@ -5,15 +5,18 @@ export function middleware(req) {
   const token = req.cookies.get("token")?.value;
   const { pathname } = req.nextUrl;
 
-  // If already authenticated, keep them out of /auth/*
-  if (token && pathname.startsWith("/auth")) {
-    return NextResponse.redirect(new URL("/dashboard", req.url));
-  }
+  console.log("[mw] path:", pathname, "hasToken:", !!token);
 
+  if (pathname.startsWith("/auth")) {
+    if (token) {
+      const url = req.nextUrl.clone();
+      url.pathname = "/dashboard";
+      console.log("[mw] redirect -> /dashboard");
+      return NextResponse.redirect(url);
+    }
+    return NextResponse.next();
+  }
   return NextResponse.next();
 }
 
-// Only run this on auth routes
-export const config = {
-  matcher: ["/auth/:path*"],
-};
+export const config = { matcher: ["/auth/:path*"] };

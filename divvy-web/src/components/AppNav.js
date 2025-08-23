@@ -1,170 +1,117 @@
+// src/components/AppNav.js
 "use client";
 
 import Link from "next/link";
 import { usePathname } from "next/navigation";
-import { useState } from "react";
-import {
-  FiMenu,
-  FiX,
-  FiHome,
-  FiUsers,
-  FiList,
-  FiSettings,
-} from "react-icons/fi";
+import { FiHome, FiUsers, FiList, FiSettings } from "react-icons/fi";
 import LogoutButton from "@/components/LogoutButton";
 
-function NavItem({ href, icon: Icon, label, onClick }) {
+function TopTab({ href, icon: Icon, label }) {
   const pathname = usePathname();
   const active = pathname === href || pathname.startsWith(href + "/");
-  const base =
-    "flex items-center gap-3 rounded-xl px-3 py-2 text-sm transition";
+
   return (
     <Link
       href={href}
-      onClick={onClick}
-      className={
-        active
-          ? `${base} bg-[#84CC16] text-white`
-          : `${base} text-slate-700 hover:bg-slate-100`
-      }
+      className={`relative inline-flex items-center gap-2 px-3 py-2 text-sm transition no-underline hover:no-underline focus:no-underline
+        ${active ? "text-slate-700" : "text-slate-600 hover:text-slate-700"}`}
     >
-      <Icon className="h-5 w-5" />
-      <span>{label}</span>
+      <Icon
+        className={`h-5 w-5 ${active ? "text-[#84CC16]" : "text-slate-500"}`}
+        aria-hidden
+      />
+      <span
+        className={`${
+          active ? "text-slate-700" : "text-slate-600 hover:text-slate-700"
+        }`}
+      >
+        {label}
+      </span>
+      {/* subtle active underline */}
+      <span
+        aria-hidden
+        className={`absolute inset-x-2 -bottom-[6px] h-0.5 rounded-full ${
+          active ? "bg-[#84CC16]" : "bg-transparent"
+        }`}
+      />
+    </Link>
+  );
+}
+
+function MobileTab({ href, icon: Icon, label }) {
+  const pathname = usePathname();
+  const active = pathname === href || pathname.startsWith(href + "/");
+  return (
+    <Link
+      href={href}
+      className="flex flex-1 flex-col items-center justify-center gap-1 py-2 no-underline hover:no-underline focus:no-underline"
+      aria-label={label}
+    >
+      <Icon
+        className={`h-5 w-5 ${active ? "text-[#84CC16]" : "text-slate-500"}`}
+      />
+      <span
+        className={`text-[11px] ${
+          active ? "text-slate-700" : "text-slate-500"
+        }`}
+      >
+        {label}
+      </span>
     </Link>
   );
 }
 
 export default function AppNav({ me }) {
-  const [open, setOpen] = useState(false);
   const initial = (me?.username?.[0] || "U").toUpperCase();
-
-  const Menu = ({ onItem }) => (
-    <nav className="flex flex-col gap-1">
-      <NavItem
-        href="/dashboard"
-        icon={FiHome}
-        label="Dashboard"
-        onClick={onItem}
-      />
-      <NavItem href="/groups" icon={FiUsers} label="Groups" onClick={onItem} />
-      <NavItem
-        href="/expenses"
-        icon={FiList}
-        label="Expenses"
-        onClick={onItem}
-      />
-      <NavItem
-        href="/settings"
-        icon={FiSettings}
-        label="Settings"
-        onClick={onItem}
-      />
-    </nav>
-  );
 
   return (
     <>
-      {/* Mobile top bar */}
-      <div className="md:hidden sticky top-0 z-20 border-b bg-white/80 backdrop-blur">
-        <div className="flex items-center justify-between px-4 py-3">
-          <button
-            aria-label="Open menu"
-            onClick={() => setOpen(true)}
-            className="rounded-lg p-2 text-slate-700 hover:bg-slate-100"
-          >
-            <FiMenu className="h-6 w-6" />
-          </button>
-
+      {/* Top bar */}
+      <div className="sticky top-0 z-20 bg-white/80 backdrop-blur shadow-sm">
+        <div className="mx-auto flex max-w-6xl items-center justify-between px-4 py-3">
           <div className="flex items-center gap-3">
             <div className="grid h-9 w-9 place-items-center rounded-lg bg-[#84CC16] text-white font-bold">
               D
             </div>
-            <span className="text-base font-semibold">DivIt</span>
+            <span className="text-base font-semibold text-slate-700">
+              DivIt
+            </span>
           </div>
 
-          <div
-            className="grid h-8 w-8 place-items-center rounded-full bg-slate-200 text-slate-700 text-sm font-semibold"
-            title={me?.username || "You"}
-          >
-            {initial}
-          </div>
-        </div>
-      </div>
+          {/* Desktop tabs */}
+          <nav className="hidden md:flex items-center gap-2">
+            <TopTab href="/dashboard" icon={FiHome} label="Dashboard" />
+            <TopTab href="/groups" icon={FiUsers} label="Groups" />
+            <TopTab href="/expenses" icon={FiList} label="Expenses" />
+            <TopTab href="/settings" icon={FiSettings} label="Settings" />
+          </nav>
 
-      {/* Desktop sidebar */}
-      <aside className="hidden md:flex fixed inset-y-0 left-0 z-20 w-64 flex-col border-r bg-white p-4">
-        <div className="mb-4 flex items-center gap-3 px-1">
-          <div className="grid h-10 w-10 place-items-center rounded-lg bg-[#84CC16] text-white font-bold">
-            D
-          </div>
-          <span className="text-lg font-semibold">DivIt</span>
-        </div>
-
-        <Menu />
-
-        <div className="mt-auto pt-4">
-          <div className="mb-3 flex items-center gap-3 rounded-xl border p-3">
-            <div className="grid h-9 w-9 place-items-center rounded-full bg-slate-200 text-slate-700 font-semibold">
+          <div className="flex items-center gap-3">
+            <div
+              className="grid h-8 w-8 place-items-center rounded-full bg-slate-200 text-slate-700 text-sm font-semibold"
+              title={me?.username || "You"}
+            >
               {initial}
             </div>
-            <div className="min-w-0">
-              <p className="truncate text-sm font-medium text-slate-900">
-                {me?.username}
-              </p>
-              <p className="truncate text-xs text-slate-500">
-                {me?.email || me?.phone}
-              </p>
-            </div>
-          </div>
-          <LogoutButton />
-        </div>
-      </aside>
-
-      {/* Mobile drawer */}
-      {open && (
-        <div className="md:hidden fixed inset-0 z-30">
-          <div
-            className="absolute inset-0 bg-black/40"
-            onClick={() => setOpen(false)}
-          />
-          <div className="absolute left-0 top-0 h-full w-72 bg-white shadow-xl p-4 flex flex-col">
-            <div className="mb-4 flex items-center justify-between">
-              <div className="flex items-center gap-3">
-                <div className="grid h-9 w-9 place-items-center rounded-lg bg-[#84CC16] text-white font-bold">
-                  D
-                </div>
-                <span className="text-base font-semibold">DivIt</span>
-              </div>
-              <button
-                aria-label="Close menu"
-                className="rounded-lg p-2 text-slate-700 hover:bg-slate-100"
-                onClick={() => setOpen(false)}
-              >
-                <FiX className="h-6 w-6" />
-              </button>
-            </div>
-
-            <Menu onItem={() => setOpen(false)} />
-
-            <div className="mt-auto pt-4">
-              <div className="mb-3 flex items-center gap-3 rounded-xl border p-3">
-                <div className="grid h-9 w-9 place-items-center rounded-full bg-slate-200 text-slate-700 font-semibold">
-                  {initial}
-                </div>
-                <div className="min-w-0">
-                  <p className="truncate text-sm font-medium text-slate-900">
-                    {me?.username}
-                  </p>
-                  <p className="truncate text-xs text-slate-500">
-                    {me?.email || me?.phone}
-                  </p>
-                </div>
-              </div>
+            <div className="hidden md:block">
               <LogoutButton />
             </div>
           </div>
         </div>
-      )}
+      </div>
+
+      {/* Bottom tabs (mobile) */}
+      <div
+        className="fixed inset-x-0 bottom-0 z-20 bg-white/90 backdrop-blur shadow-[0_-6px_20px_rgba(0,0,0,0.04)] md:hidden"
+        style={{ paddingBottom: "env(safe-area-inset-bottom)" }}
+      >
+        <div className="mx-auto flex max-w-6xl items-center justify-between px-4">
+          <MobileTab href="/dashboard" icon={FiHome} label="Home" />
+          <MobileTab href="/groups" icon={FiUsers} label="Groups" />
+          <MobileTab href="/expenses" icon={FiList} label="Expenses" />
+          <MobileTab href="/settings" icon={FiSettings} label="Settings" />
+        </div>
+      </div>
     </>
   );
 }

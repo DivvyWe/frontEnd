@@ -36,15 +36,6 @@ body {
   -moz-osx-font-smoothing: grayscale;
 }
 
-/* ===== Utility overrides ===== */
-a {
-  color: var(--primary);
-  text-decoration: none;
-}
-a:hover {
-  text-decoration: underline;
-}
-
 /* Buttons fallback (if not using Tailwind) */
 button {
   font-family: inherit;

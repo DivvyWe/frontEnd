@@ -1,131 +1,184 @@
-// app/dashboard/page.js
+// src/app/dashboard/page.js
 import { cookies } from "next/headers";
 import { redirect } from "next/navigation";
-import LogoutButton from "@/components/LogoutButton";
+import Link from "next/link";
+import NewGroupButton from "@/components/NewGroupButton";
+import { FiUsers, FiInbox, FiList } from "react-icons/fi";
+
+export const dynamic = "force-dynamic";
 
 export default async function DashboardPage() {
   const token = (await cookies()).get("token")?.value;
   if (!token) redirect("/auth/signin");
 
-  const meRes = await fetch(`${process.env.NEXT_PUBLIC_API_BASE}/auth/me`, {
-    headers: { Authorization: `Bearer ${token}` },
-    cache: "no-store",
-  });
-  if (!meRes.ok) redirect("/auth/signin");
-  const me = await meRes.json();
+  const headers = { Authorization: `Bearer ${token}` };
 
-  const initial = (me?.username?.[0] || "U").toUpperCase();
+  const [meRes, groupsRes, invitesRes] = await Promise.all([
+    fetch(`${process.env.NEXT_PUBLIC_API_BASE}/auth/me`, {
+      headers,
+      cache: "no-store",
+    }),
+    fetch(`${process.env.NEXT_PUBLIC_API_BASE}/user/groups`, {
+      headers,
+      cache: "no-store",
+    }),
+    fetch(`${process.env.NEXT_PUBLIC_API_BASE}/groups/invites`, {
+      headers,
+      cache: "no-store",
+    }).catch(() => null),
+  ]);
+
+  if (!meRes.ok) redirect("/auth/signin");
+
+  const me = await meRes.json();
+  const groups = groupsRes.ok ? await groupsRes.json() : [];
+  const invites = invitesRes && invitesRes.ok ? await invitesRes.json() : [];
+
+  const groupsCount = Array.isArray(groups) ? groups.length : 0;
+  const invitesCount = Array.isArray(invites) ? invites.length : 0;
 
   return (
-    <main className="min-h-screen bg-[radial-gradient(60rem_40rem_at_20%_0%,#dcfce7_0%,transparent_60%),radial-gradient(50rem_30rem_at_100%_100%,#f7fee7_0%,transparent_60%)]">
-      {/* header */}
-      <header className="sticky top-0 z-10 flex items-center justify-between border-b bg-white/80 px-6 py-4 backdrop-blur">
-        <div className="flex items-center gap-3">
-          <div className="grid h-9 w-9 place-items-center rounded-lg bg-[#84CC16] text-white font-bold">
-            D
+    <div className="space-y-6">
+      {/* Welcome + primary actions */}
+      <section className="rounded-2xl bg-white p-6 shadow-sm ring-1 ring-black/5">
+        <div className="flex flex-col gap-4 md:flex-row md:items-center md:justify-between">
+          <div>
+            <h1 className="text-2xl font-semibold text-slate-900">
+              Hi, {me.username}
+            </h1>
+            <p className="text-slate-600">Let’s split smarter today 👋</p>
           </div>
-          <h1 className="text-lg font-semibold">DivIt</h1>
-        </div>
-        <div className="flex items-center gap-3">
-          <div className="grid h-9 w-9 place-items-center rounded-full bg-slate-200 text-slate-700 font-semibold">
-            {initial}
-          </div>
-          <LogoutButton />
-        </div>
-      </header>
-
-      {/* content */}
-      <section className="mx-auto max-w-6xl px-6 py-8">
-        {/* welcome / quick actions */}
-        <div className="rounded-2xl border bg-white p-6 shadow-sm">
-          <div className="flex flex-col justify-between gap-4 md:flex-row md:items-center">
-            <div>
-              <h2 className="text-2xl font-semibold">Hi, {me.username}</h2>
-              <p className="text-slate-600">Let’s split smarter today 👋</p>
-            </div>
-            <div className="flex gap-3">
-              <a
-                href="/groups/new"
-                className="rounded-lg bg-[#84CC16] px-4 py-2.5 font-semibold text-white hover:bg-[#76b514] active:scale-[0.99]"
-              >
-                New group
-              </a>
-              <a
-                href="/expenses/new"
-                className="rounded-lg border border-slate-300 bg-white px-4 py-2.5 font-medium text-slate-800 hover:bg-slate-50 active:scale-[0.99]"
-              >
-                Add expense
-              </a>
-            </div>
+          <div className="flex gap-3">
+            {/* Modal-based create (mobile-friendly) */}
+            <NewGroupButton />
+            <Link
+              href="/expenses/new"
+              className="inline-flex items-center gap-2 rounded-lg bg-white px-4 py-2.5 font-medium text-slate-900 ring-1 ring-slate-200 hover:bg-slate-50 active:scale-[0.99]"
+            >
+              <FiList className="h-5 w-5" />
+              Add expense
+            </Link>
           </div>
         </div>
+      </section>
 
-        {/* main grid */}
-        <div className="mt-6 grid gap-6 lg:grid-cols-3">
-          {/* groups card */}
-          <div className="lg:col-span-2 rounded-2xl border bg-white p-6">
-            <div className="mb-4 flex items-center justify-between">
-              <h3 className="text-lg font-semibold">Your groups</h3>
-              <a
-                href="/groups"
-                className="text-sm font-medium text-slate-700 hover:text-[#84CC16]"
-              >
-                View all
-              </a>
+      {/* Summary tiles (kept concise) */}
+      <section className="grid gap-4 sm:grid-cols-2">
+        <div className="rounded-xl bg-white p-4 shadow-sm ring-1 ring-black/5">
+          <div className="flex items-center justify-between">
+            <span className="text-sm text-slate-500">Groups</span>
+            <div className="grid h-8 w-8 place-items-center rounded-lg bg-[#84CC16]/15">
+              <FiUsers className="h-5 w-5 text-[#84CC16]" />
             </div>
+          </div>
+          <p className="mt-2 text-2xl font-semibold text-slate-900">
+            {groupsCount}
+          </p>
+          <Link
+            href="/groups"
+            className="mt-2 inline-block text-sm font-medium text-slate-700 hover:text-[#84CC16]"
+          >
+            View groups →
+          </Link>
+        </div>
 
-            {/* empty state placeholder – replace with real list later */}
+        <div className="rounded-xl bg-white p-4 shadow-sm ring-1 ring-black/5">
+          <div className="flex items-center justify-between">
+            <span className="text-sm text-slate-500">Pending invites</span>
+            <div className="grid h-8 w-8 place-items-center rounded-lg bg-[#84CC16]/15">
+              <FiInbox className="h-5 w-5 text-[#84CC16]" />
+            </div>
+          </div>
+          <p className="mt-2 text-2xl font-semibold text-slate-900">
+            {invitesCount}
+          </p>
+          <Link
+            href="/groups/invites"
+            className="mt-2 inline-block text-sm font-medium text-slate-700 hover:text-[#84CC16]"
+          >
+            Review invites →
+          </Link>
+        </div>
+      </section>
+
+      {/* Main grid */}
+      <section className="grid gap-6 lg:grid-cols-3">
+        {/* Groups */}
+        <div className="lg:col-span-2 rounded-2xl bg-white p-6 shadow-sm ring-1 ring-black/5">
+          <div className="mb-4 flex items-center justify-between">
+            <h2 className="text-lg font-semibold text-slate-900">
+              Your groups
+            </h2>
+            <Link
+              href="/groups"
+              className="text-sm font-medium text-slate-700 hover:text-[#84CC16]"
+            >
+              View all
+            </Link>
+          </div>
+
+          {groupsCount > 0 ? (
+            <ul className="grid gap-4 sm:grid-cols-2">
+              {groups.slice(0, 6).map((g) => {
+                const membersCount = Array.isArray(g.members)
+                  ? g.members.length
+                  : undefined;
+                return (
+                  <li
+                    key={g._id}
+                    className="rounded-xl border border-slate-200 p-4 transition hover:bg-slate-50"
+                  >
+                    <Link
+                      href={`/groups/${g._id}`}
+                      className="block no-underline"
+                    >
+                      <h3 className="text-base font-semibold text-slate-900 line-clamp-1">
+                        {g.name || "Untitled group"}
+                      </h3>
+                      <p className="mt-1 text-sm text-slate-500">
+                        {typeof membersCount === "number"
+                          ? `${membersCount} member${
+                              membersCount === 1 ? "" : "s"
+                            }`
+                          : "—"}
+                      </p>
+                      <span className="mt-3 inline-flex text-sm font-medium text-[#84CC16]">
+                        Open →
+                      </span>
+                    </Link>
+                  </li>
+                );
+              })}
+            </ul>
+          ) : (
             <div className="grid place-items-center rounded-xl border border-dashed border-slate-200 p-10 text-center">
               <p className="text-slate-600">
                 No groups yet. Create one to start tracking shared expenses.
               </p>
-              <a
-                href="/groups/new"
-                className="mt-4 inline-flex rounded-lg bg-[#84CC16] px-4 py-2.5 font-semibold text-white hover:bg-[#76b514]"
-              >
-                Create your first group
-              </a>
+              <div className="mt-4">
+                <NewGroupButton />
+              </div>
             </div>
-          </div>
-
-          {/* recent activity */}
-          <div className="rounded-2xl border bg-white p-6">
-            <h3 className="mb-4 text-lg font-semibold">Recent activity</h3>
-            <ul className="space-y-4">
-              {/* placeholders – wire to /groups/:id/expenses later */}
-              <li className="flex items-start gap-3">
-                <div className="mt-1 h-2 w-2 rounded-full bg-[#84CC16]" />
-                <div>
-                  <p className="text-sm text-slate-800">
-                    You added <span className="font-medium">$42.00</span> to{" "}
-                    <span className="font-medium">Dinner</span>
-                  </p>
-                  <p className="text-xs text-slate-500">Just now</p>
-                </div>
-              </li>
-              <li className="flex items-start gap-3">
-                <div className="mt-1 h-2 w-2 rounded-full bg-[#84CC16]" />
-                <div>
-                  <p className="text-sm text-slate-800">
-                    Marked <span className="font-medium">Taxi</span> as paid
-                  </p>
-                  <p className="text-xs text-slate-500">Today</p>
-                </div>
-              </li>
-              <li className="flex items-start gap-3">
-                <div className="mt-1 h-2 w-2 rounded-full bg-[#84CC16]" />
-                <div>
-                  <p className="text-sm text-slate-800">
-                    Invited <span className="font-medium">Alex</span> to{" "}
-                    <span className="font-medium">Trip 2025</span>
-                  </p>
-                  <p className="text-xs text-slate-500">Yesterday</p>
-                </div>
-              </li>
-            </ul>
-          </div>
+          )}
         </div>
+
+        {/* Recent activity (light placeholder) */}
+        <aside className="rounded-2xl bg-white p-6 shadow-sm ring-1 ring-black/5">
+          <h2 className="mb-4 text-lg font-semibold text-slate-900">
+            Recent activity
+          </h2>
+          <p className="text-sm text-slate-600">
+            Your latest expenses will appear here once you start adding them.
+          </p>
+          <Link
+            href="/expenses/new"
+            className="mt-4 inline-flex items-center gap-2 rounded-lg bg-white px-3 py-2 text-sm font-medium text-slate-900 ring-1 ring-slate-200 hover:bg-slate-50"
+          >
+            <FiList className="h-4 w-4" />
+            Add your first expense
+          </Link>
+        </aside>
       </section>
-    </main>
+    </div>
   );
 }
