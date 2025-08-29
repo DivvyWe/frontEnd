@@ -1,41 +1,84 @@
+// app/expenses/[groupId]/[expenseId]/page.js
 import { headers, cookies } from "next/headers";
 import { redirect } from "next/navigation";
 import Link from "next/link";
 import ExpenseTopBar from "@/components/expense/ExpenseTopBar";
 import ExpenseHeaderCard from "@/components/expense/ExpenseHeaderCard";
+import ExpenseMessages from "@/components/expense/ExpenseMessages";
 
 export const dynamic = "force-dynamic";
 const fmt = (n) => `$${(Number(n) || 0).toFixed(2)}`;
 
-export default async function ExpensePage({ params }) {
-  const { groupId, expenseId } = params;
+// helpers for names/avatars
+const getId = (u) => (typeof u === "object" ? u?._id : u);
+const toTitle = (s) =>
+  String(s || "")
+    .replace(/[_\-.]+/g, " ")
+    .split(/\s+/)
+    .filter(Boolean)
+    .map((w) => w.charAt(0).toUpperCase() + w.slice(1))
+    .join(" ");
+const displayName = (user) => {
+  if (!user) return "Unknown";
+  if (user.displayName) return toTitle(user.displayName);
+  if (user.username) return toTitle(user.username);
+  if (user.email) return toTitle(user.email.split("@")[0]);
+  return String(getId(user)).slice(-6);
+};
+const initials = (name) => {
+  const parts = String(name).trim().split(/\s+/);
+  const a = (parts[0] || "").charAt(0);
+  const b = (parts[1] || "").charAt(0);
+  return (a + b || a || "?").toUpperCase();
+};
+function Avatar({ name, title }) {
+  return (
+    <span
+      className="grid h-6 w-6 place-items-center rounded-full bg-slate-200 text-[10px] font-semibold text-slate-700 ring-2 ring-white"
+      title={title || name}
+    >
+      {initials(name)}
+    </span>
+  );
+}
 
-  // --- logs ---
-  console.log(" Server  [expense/page] params:", { groupId, expenseId });
+export default async function ExpensePage(props) {
+  // In this Next version, params is a Promise
+  const { groupId, expenseId } = await props.params;
 
-  // Build absolute base URL
+  if (!groupId || !expenseId) {
+    return (
+      <ErrorBlock
+        groupId={groupId || ""}
+        title="Invalid URL"
+        sub="Missing group or expense ID in the route."
+      />
+    );
+  }
+
   const h = await headers();
   const proto = h.get("x-forwarded-proto") ?? "http";
   const host = h.get("x-forwarded-host") ?? h.get("host");
   const base = process.env.NEXT_PUBLIC_SITE_URL || `${proto}://${host}`;
 
-  // Forward cookies for auth
   const cookieHeader = (await cookies())
     .getAll()
     .map((c) => `${c.name}=${c.value}`)
     .join("; ");
+
   const common = {
     headers: { Cookie: cookieHeader, Accept: "application/json" },
     cache: "no-store",
   };
 
+  // Fetch expense
   const apiUrl = `${base}/api/proxy/expenses/${groupId}/expense/${expenseId}`;
-  console.log(" Server  [expense/page] fetching:", apiUrl);
-
-  const res = await fetch(apiUrl, common).catch((e) => {
-    console.log(" Server  [expense/page] fetch error:", e?.message || e);
-    return null;
-  });
+  let res;
+  try {
+    res = await fetch(apiUrl, common);
+  } catch {
+    res = null;
+  }
 
   if (!res)
     return (
@@ -45,6 +88,7 @@ export default async function ExpensePage({ params }) {
         sub="Couldn’t reach the server."
       />
     );
+
   if ([401, 403].includes(res.status)) redirect("/auth/signin");
   if (res.status === 404)
     return (
@@ -59,8 +103,8 @@ export default async function ExpensePage({ params }) {
   try {
     const data = await res.json();
     expense = data?.expense || data || null;
-  } catch (e) {
-    console.log(" Server  [expense/page] JSON parse error:", e?.message || e);
+  } catch {
+    expense = null;
   }
 
   if (!expense || !expense._id) {
@@ -73,49 +117,79 @@ export default async function ExpensePage({ params }) {
     );
   }
 
-  // derive status: paid if every split fully covered
   const splits = Array.isArray(expense.splits) ? expense.splits : [];
-  const allPaid = splits.length
-    ? splits.every((s) => {
-        const paid = (s.payments || []).reduce(
-          (sum, p) => sum + (p.amount || 0),
-          0
-        );
-        return paid >= (s.amount || 0);
-      })
-    : false;
+  const allPaid = false; // per-expense payments aren’t tracked; keep pending
 
   return (
     <div className="mx-auto max-w-screen-lg px-4 sm:px-6 py-4 sm:py-6 space-y-4">
-      {/* Top bar (under your existing navbar) */}
       <ExpenseTopBar groupId={groupId} expenseId={expenseId} />
 
-      {/* Content grid: header on left; sidebar reserved for comments later */}
       <div className="grid grid-cols-1 gap-4 lg:grid-cols-12">
-        <div className="lg:col-span-8 space-y-4">
+        {/* Main column now full width */}
+        <div className="lg:col-span-12 space-y-4">
           <ExpenseHeaderCard
-            title={expense.description || "Expense"}
-            createdAt={expense.createdAt}
-            amount={expense.amount}
+            expense={expense}
             status={allPaid ? "paid" : "pending"}
-            splitType={expense.splitType || "equal"}
           />
 
-          {/* PLACEHOLDERS (we'll fill these in next steps) */}
+          {/* Who paid */}
           <section className="rounded-2xl bg-white p-4 shadow-sm ring-1 ring-black/5">
             <h2 className="text-sm font-semibold text-slate-900">Who paid</h2>
-            {/* ... your contributors list remains here for now ... */}
+            <ul className="mt-2 space-y-1 text-sm">
+              {(expense.contributors || []).map((c) => {
+                const name = displayName(c.user);
+                return (
+                  <li
+                    key={c._id || `${getId(c.user)}-${c.amount}`}
+                    className="flex items-center justify-between"
+                  >
+                    <div className="flex items-center gap-2 min-w-0">
+                      <Avatar name={name} />
+                      <span className="text-slate-700 truncate">{name}</span>
+                    </div>
+                    <span className="font-medium shrink-0">
+                      {fmt(c.amount)}
+                    </span>
+                  </li>
+                );
+              })}
+              {!expense.contributors?.length && (
+                <li className="text-xs text-slate-500 italic">
+                  No contributors.
+                </li>
+              )}
+            </ul>
           </section>
 
+          {/* Who owes (no per-expense payment progress) */}
           <section className="rounded-2xl bg-white p-4 shadow-sm ring-1 ring-black/5">
             <h2 className="text-sm font-semibold text-slate-900">Who owes</h2>
-            {/* ... your splits list remains here for now ... */}
+            <ul className="mt-2 space-y-1 text-sm">
+              {splits.map((s) => {
+                const name = displayName(s.user);
+                return (
+                  <li
+                    key={s._id || `${getId(s.user)}-${s.amount}`}
+                    className="flex items-center justify-between"
+                  >
+                    <div className="flex items-center gap-2 min-w-0">
+                      <Avatar name={name} />
+                      <span className="text-slate-700 truncate">{name}</span>
+                    </div>
+                    <span className="font-medium shrink-0">
+                      Owes {fmt(s.amount)}
+                    </span>
+                  </li>
+                );
+              })}
+              {!splits.length && (
+                <li className="text-xs text-slate-500 italic">No splits.</li>
+              )}
+            </ul>
           </section>
 
-          <section className="rounded-2xl bg-white p-4 shadow-sm ring-1 ring-black/5">
-            <h2 className="text-sm font-semibold text-slate-900">Activity</h2>
-            <div className="text-xs text-slate-400">No activity yet.</div>
-          </section>
+          {/* Messages */}
+          <ExpenseMessages expenseId={expenseId} />
 
           <div className="flex justify-between pt-2">
             <Link
@@ -124,22 +198,8 @@ export default async function ExpensePage({ params }) {
             >
               ← Back to group
             </Link>
-            <Link
-              href={`/expenses/add?groupId=${groupId}`}
-              className="text-sm font-medium text-slate-600 hover:text-slate-900"
-            >
-              Add expense
-            </Link>
           </div>
         </div>
-
-        {/* Sidebar (reserved for Comments panel; sticky on desktop) */}
-        <aside className="lg:col-span-4">
-          <div className="lg:sticky lg:top-20 rounded-2xl bg-white p-4 shadow-sm ring-1 ring-black/5">
-            <h2 className="text-sm font-semibold text-slate-900">Comments</h2>
-            <div className="text-xs text-slate-400">Coming next.</div>
-          </div>
-        </aside>
       </div>
     </div>
   );
@@ -153,7 +213,7 @@ function ErrorBlock({ groupId, title, sub }) {
         {sub ? <div className="mt-1 text-rose-700/90">{sub}</div> : null}
       </div>
       <Link
-        href={`/groups/${groupId}`}
+        href={groupId ? `/groups/${groupId}` : "/groups"}
         className="inline-flex items-center text-sm font-medium text-[#84CC16]"
       >
         ← Back to group
