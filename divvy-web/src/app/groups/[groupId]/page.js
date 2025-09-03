@@ -1,4 +1,4 @@
-// app/groups/[groupId]/page.js
+// src/app/groups/[groupId]/page.js
 import { headers, cookies } from "next/headers";
 import { redirect } from "next/navigation";
 
@@ -7,6 +7,7 @@ import GroupSummary from "@/components/groups/GroupSummary";
 import GroupMembersSection from "@/components/groups/GroupMembersSection";
 import GroupSettlements from "@/components/groups/GroupSettlements";
 import GroupExpenses from "@/components/groups/GroupExpenses";
+import InviteGate from "@/components/groups/InviteGate";
 
 export const dynamic = "force-dynamic";
 
@@ -32,32 +33,54 @@ export default async function GroupPage({ params, searchParams }) {
     cache: "no-store",
   };
 
-  // Fetch data
-  const [groupRes, summaryRes, expensesRes, membersRes, meRes] =
-    await Promise.all([
-      fetch(`${base}/api/proxy/groups/${groupId}`, common).catch(() => null),
-      fetch(`${base}/api/proxy/groups/${groupId}/summary`, common).catch(
-        () => null
-      ),
-      fetch(`${base}/api/proxy/expenses/group/${groupId}`, common).catch(
-        () => null
-      ),
-      fetch(`${base}/api/proxy/groups/${groupId}/members`, common).catch(
-        () => null
-      ),
-      fetch(`${base}/api/proxy/auth/me`, common).catch(() => null),
-    ]);
-
-  if (
-    !groupRes ||
-    !summaryRes ||
-    !expensesRes ||
-    [401, 403].includes(groupRes?.status) ||
-    [401, 403].includes(summaryRes?.status) ||
-    [401, 403].includes(expensesRes?.status) ||
-    (meRes && [401, 403].includes(meRes?.status))
-  )
+  // Always check auth first
+  const meRes = await fetch(`${base}/api/proxy/auth/me`, common).catch(
+    () => null
+  );
+  if (!meRes || [401, 403].includes(meRes.status)) {
+    // Not logged in -> signin
     redirect("/auth/signin");
+  }
+  const me = meRes?.ok ? await meRes.json().catch(() => null) : null;
+  const myId = me?._id || me?.id || null;
+
+  // Try the protected group resources
+  const [groupRes, summaryRes, expensesRes, membersRes] = await Promise.all([
+    fetch(`${base}/api/proxy/groups/${groupId}`, common).catch(() => null),
+    fetch(`${base}/api/proxy/groups/${groupId}/summary`, common).catch(
+      () => null
+    ),
+    fetch(`${base}/api/proxy/expenses/group/${groupId}`, common).catch(
+      () => null
+    ),
+    fetch(`${base}/api/proxy/groups/${groupId}/members`, common).catch(
+      () => null
+    ),
+  ]);
+
+  const anyForbidden = [groupRes, summaryRes, expensesRes].some(
+    (r) => r && [401, 403].includes(r.status)
+  );
+
+  // 🚪 Long-term fix: if authenticated but not a member yet, show InviteGate (no redirect)
+  if (anyForbidden) {
+    return (
+      <div className="space-y-6">
+        <InviteGate groupId={groupId} />
+      </div>
+    );
+  }
+
+  // If server/network trouble
+  if (!groupRes || !summaryRes || !expensesRes) {
+    return (
+      <div className="space-y-6">
+        <div className="rounded-xl border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-800">
+          Could not load this group.
+        </div>
+      </div>
+    );
+  }
 
   // Parse
   const group = (() => {
@@ -70,7 +93,6 @@ export default async function GroupPage({ params, searchParams }) {
   })();
   const summary = (await summaryRes.json().catch(() => ({}))) || {};
   const expensesPayload = (await expensesRes.json().catch(() => ({}))) || {};
-  const me = meRes?.ok ? await meRes.json().catch(() => null) : null;
 
   // await group json (deferred above so we can try/catch cleanly)
   const gRaw = group && (await group.catch?.(() => null));
@@ -90,7 +112,6 @@ export default async function GroupPage({ params, searchParams }) {
   const expenses = expensesPayload?.expenses || [];
 
   // Permissions
-  const myId = me?._id || me?.id || null;
   const ownerId =
     groupDoc?.createdBy?._id ||
     groupDoc?.owner?._id ||
@@ -108,8 +129,6 @@ export default async function GroupPage({ params, searchParams }) {
     .filter((s) => String(s.to) === String(myId || ""))
     .reduce((sum, s) => sum + (s.amount || 0), 0);
 
-  const net = youAreOwedTotal - youOweTotal;
-
   // Sort
   const sorted = [...expenses].sort((a, b) => {
     if (sort === "old") return new Date(a.createdAt) - new Date(b.createdAt);
@@ -122,19 +141,14 @@ export default async function GroupPage({ params, searchParams }) {
     <div className="space-y-6 overflow-x-hidden">
       <GroupHeader groupName={groupDoc?.name || "Group"} groupId={groupId} />
 
-      {/* 🔁 New compact summary: two lists (You owe / Owed to you) */}
       <GroupSummary currentUserId={myId} settlements={settlements} fmt={fmt} />
-
-      {/* (Optional) Keep the totals bar elsewhere if you still need it:
-      <YourTotals youOwe={youOweTotal} youAreOwed={youAreOwedTotal} net={net} />
-      */}
 
       <GroupMembersSection
         groupId={groupId}
         members={members}
         ownerId={ownerId}
         canManage={canManageMembers}
-        currentUserId={myId} // ⬅️ add this
+        currentUserId={myId}
       />
 
       <GroupSettlements settlements={settlements} fmt={fmt} />

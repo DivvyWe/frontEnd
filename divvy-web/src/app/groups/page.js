@@ -6,87 +6,94 @@ import NewGroupButton from "@/components/NewGroupButton";
 
 export const dynamic = "force-dynamic";
 
-const fmt = (n) => `$${(Number(n) || 0).toFixed(2)}`;
+// money like "40" or "40.50" (no $ symbol for compact rows)
+const fmtMoneyPlain = (n) => {
+  const x = Number(n) || 0;
+  return Number.isInteger(x) ? String(x) : x.toFixed(2);
+};
 
-// helper
-
-function GroupCard({ g }) {
-  const hasAnyDebt =
-    (g?.youOwe?.length || 0) > 0 || (g?.owedToYou?.length || 0) > 0;
-
-  const net = Number(g?.totals?.net || 0);
-  const netClass =
-    net > 0
+function NetBadge({ net = 0 }) {
+  const n = Number(net) || 0;
+  const cls =
+    n > 0
       ? "bg-green-100 text-green-700"
-      : net < 0
+      : n < 0
       ? "bg-red-100 text-red-700"
       : "bg-slate-100 text-slate-500";
+  return (
+    <span
+      className={`shrink-0 rounded-full px-2 py-0.5 text-xs font-medium ${cls}`}
+      title="Net = Owed to you − You owe"
+    >
+      {n > 0 ? `+${n.toFixed(2)}` : n.toFixed(2)}
+    </span>
+  );
+}
+
+function SettledBadge() {
+  return (
+    <span className="inline-flex items-center gap-1 rounded-md bg-slate-50 px-2 py-1 text-xs font-medium text-slate-600">
+      <span className="h-1.5 w-1.5 rounded-full bg-slate-300" />
+      All settled
+    </span>
+  );
+}
+
+function DebtRow({ left, right, variant }) {
+  // variant: 'owe' (you pay) -> red, 'owed' (they pay you) -> green
+  const cls =
+    variant === "owe" ? "bg-red-50 text-red-700" : "bg-green-50 text-green-700";
+  return (
+    <div
+      className={`flex items-center justify-between rounded-md px-2 py-1 text-sm ${cls}`}
+    >
+      <span className="font-medium">{left}</span>
+      <span>{right}</span>
+    </div>
+  );
+}
+
+function GroupCard({ g }) {
+  const youOwe = g?.youOwe || [];
+  const owedToYou = g?.owedToYou || [];
+  const hasAnyDebt = youOwe.length > 0 || owedToYou.length > 0;
 
   return (
-    <li
-      key={g._id}
-      className="rounded-xl border border-slate-200 bg-white shadow-sm"
-    >
+    <li className="rounded-xl border border-slate-200 bg-white shadow-sm">
       <Link
         href={`/groups/${g._id}`}
         className="block rounded-xl p-4 transition hover:bg-slate-50 focus:outline-none"
       >
-        {/* Header (name + net) */}
-        <div className="flex items-center justify-between gap-3">
+        {/* header */}
+        <div className="mb-2 flex items-center justify-between gap-3">
           <h3 className="text-base font-semibold text-slate-900 line-clamp-1">
             {g.name || "Untitled group"}
           </h3>
-          <span
-            className={`shrink-0 rounded-full px-2 py-0.5 text-xs font-medium ${netClass}`}
-            title="Net = Owed to you − You owe"
-          >
-            {net > 0 ? `+${net.toFixed(2)}` : net.toFixed(2)}
-          </span>
+          <NetBadge net={g?.totals?.net || 0} />
         </div>
 
-        {/* Debts list (only if needed) */}
+        {/* compact debts OR settled badge */}
         {hasAnyDebt ? (
-          <div className="mt-3 space-y-2">
-            {/* Others → You */}
-            {g?.owedToYou?.length ? (
-              <ul className="space-y-1">
-                {g.owedToYou.map((row, i) => (
-                  <li
-                    key={`oy-${i}`}
-                    className="flex items-center justify-between text-sm"
-                  >
-                    <span className="text-slate-700">
-                      <span className="font-medium">{row.fromName}</span> → You
-                    </span>
-                    <span className="rounded-md bg-green-50 px-2 py-0.5 text-green-700">
-                      {fmt(row.amount)}
-                    </span>
-                  </li>
-                ))}
-              </ul>
-            ) : null}
-
-            {/* You → Others */}
-            {g?.youOwe?.length ? (
-              <ul className="space-y-1">
-                {g.youOwe.map((row, i) => (
-                  <li
-                    key={`yo-${i}`}
-                    className="flex items-center justify-between text-sm"
-                  >
-                    <span className="text-slate-700">
-                      You → <span className="font-medium">{row.toName}</span>
-                    </span>
-                    <span className="rounded-md bg-red-50 px-2 py-0.5 text-red-700">
-                      {fmt(row.amount)}
-                    </span>
-                  </li>
-                ))}
-              </ul>
-            ) : null}
+          <div className="grid gap-1">
+            {youOwe.map((row, i) => (
+              <DebtRow
+                key={`yo-${i}`}
+                variant="owe"
+                left={`You → ${row.toName}`}
+                right={fmtMoneyPlain(row.amount)}
+              />
+            ))}
+            {owedToYou.map((row, i) => (
+              <DebtRow
+                key={`oy-${i}`}
+                variant="owed"
+                left={`${row.fromName} → You`}
+                right={fmtMoneyPlain(row.amount)}
+              />
+            ))}
           </div>
         ) : (
-          <div className="mt-2 text-xs text-slate-400">All settled</div>
+          <SettledBadge />
         )}
       </Link>
     </li>
@@ -109,8 +116,8 @@ export default async function GroupsPage() {
     cache: "no-store",
   };
 
-  const urlUser = `${base}/api/proxy/user/groups`;
-  const urlOld = `${base}/api/proxy/groups`;
+  const urlUser = `${base}/api/proxy/user/groups`; // new API
+  const urlOld = `${base}/api/proxy/groups`; // legacy fallback
 
   let res = await fetch(urlUser, common).catch(() => null);
   if (!res || res.status === 404)
@@ -134,17 +141,33 @@ export default async function GroupsPage() {
     raw = await res.json();
   } catch {}
 
-  let groups = [];
-  if (Array.isArray(raw)) groups = raw;
-  else if (raw?.groups && Array.isArray(raw.groups)) groups = raw.groups;
-  else if (raw?.data?.groups && Array.isArray(raw.data.groups))
-    groups = raw.data.groups;
+  // New shape
+  const created = Array.isArray(raw?.createdGroups) ? raw.createdGroups : [];
+  const joined = Array.isArray(raw?.joinedGroups) ? raw.joinedGroups : [];
 
-  const hasGroups = Array.isArray(groups) && groups.length > 0;
+  // Legacy fallback
+  let legacy = [];
+  if (Array.isArray(raw?.groups)) legacy = raw.groups;
+  else if (Array.isArray(raw?.data?.groups)) legacy = raw.data.groups;
+
+  // Merge + dedupe by _id; prefer objects that already include summaries
+  const map = new Map();
+  for (const g of [...created, ...joined, ...legacy]) {
+    if (!g || !g._id) continue;
+    const prev = map.get(g._id);
+    map.set(g._id, { ...(prev || {}), ...g });
+  }
+  const groups = Array.from(map.values()).sort((a, b) => {
+    const au = new Date(a.updatedAt || a.createdAt || 0).getTime();
+    const bu = new Date(b.updatedAt || b.createdAt || 0).getTime();
+    return bu - au;
+  });
+
+  const hasGroups = groups.length > 0;
 
   return (
     <div className="space-y-6">
-      {/* header + actions */}
+      {/* header + action */}
       <div className="flex flex-col gap-3 md:flex-row md:items-center md:justify-between">
         <div>
           <h1 className="text-2xl font-semibold text-slate-800">Your groups</h1>

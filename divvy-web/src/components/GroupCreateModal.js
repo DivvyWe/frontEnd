@@ -1,28 +1,38 @@
+// src/components/GroupCreateModal.js
 "use client";
 
 import { useEffect, useRef, useState } from "react";
 import { FiX, FiPlus, FiAlertCircle } from "react-icons/fi";
 import { useRouter } from "next/navigation";
+import PeoplePicker from "@/components/people/PeoplePicker";
 
 export default function GroupCreateModal({ open, onClose, onCreated }) {
   const router = useRouter();
   const nameRef = useRef(null);
-  const panelRef = useRef(null);
 
+  // Basics
   const [name, setName] = useState("");
-  const [description, setDescription] = useState("");
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState("");
 
-  // Focus first field when opened
+  // Selected existing users (IDs only)
+  const [selectedIds, setSelectedIds] = useState([]); // string[]
+
+  // Endpoints
+  const CREATE_ENDPOINT = "/api/proxy/user/groups"; // POST /user/groups
+  const INVITE_ENDPOINT = "/api/proxy/user/groups/invite"; // POST /user/groups/invite
+
+  // Reset on open/close
   useEffect(() => {
     if (open) {
       setTimeout(() => nameRef.current?.focus(), 50);
       setError("");
+      setSelectedIds([]);
     } else {
       setName("");
-      setDescription("");
       setSubmitting(false);
+      setSelectedIds([]);
+      setError("");
     }
   }, [open]);
 
@@ -36,8 +46,6 @@ export default function GroupCreateModal({ open, onClose, onCreated }) {
     return () => window.removeEventListener("keydown", onKeyDown);
   }, [open, onClose]);
 
-  const CREATE_ENDPOINT = "/api/proxy/user/groups"; // <-- matches your backend
-
   async function handleSubmit(e) {
     e.preventDefault();
     if (!name.trim()) {
@@ -50,35 +58,51 @@ export default function GroupCreateModal({ open, onClose, onCreated }) {
     setError("");
 
     try {
+      // 1) Create the group
       const res = await fetch(CREATE_ENDPOINT, {
         method: "POST",
         headers: {
           "Content-Type": "application/json",
           Accept: "application/json",
         },
-        credentials: "include", // ensure cookies get sent
-        body: JSON.stringify({
-          name: name.trim(),
-          description: description.trim() || undefined,
-        }),
+        credentials: "include",
+        body: JSON.stringify({ name: name.trim() }),
       });
 
       const data = await res.json().catch(() => ({}));
-      console.log("[group/create] status:", res.status, "data:", data);
+      const group = data?.group || data;
+      const groupId = group?._id;
 
       if (res.status === 401) {
         router.replace("/auth/signin");
         return;
       }
-      if (!res.ok) {
+      if (!res.ok || !groupId) {
         setError(data?.message || "Failed to create group.");
         return;
       }
 
-      onCreated?.(data);
+      // 2) Invite selected users (IDs only; no email invites)
+      if (selectedIds.length > 0) {
+        try {
+          await fetch(INVITE_ENDPOINT, {
+            method: "POST",
+            headers: {
+              "Content-Type": "application/json",
+              Accept: "application/json",
+            },
+            credentials: "include",
+            body: JSON.stringify({
+              groupId,
+              userIdsToInvite: selectedIds,
+            }),
+          }).then((r) => r.json().catch(() => ({})));
+        } catch {}
+      }
+
+      onCreated?.(group);
       onClose?.();
-      if (data?._id) router.push(`/groups/${data._id}`);
-      else router.refresh();
+      router.push(`/groups/${groupId}`);
     } catch {
       setError("Something went wrong. Please try again.");
     } finally {
@@ -97,15 +121,10 @@ export default function GroupCreateModal({ open, onClose, onCreated }) {
         className="absolute inset-0 bg-black/40 backdrop-blur-sm transition-opacity"
       />
 
-      {/* Panel: sheet on mobile, centered dialog on md+ */}
-      <div className="absolute inset-x-0 bottom-0 mx-auto w-full max-w-lg md:inset-0 md:flex md items-center md:justify-center">
+      {/* Centered panel wrapper (always centered) */}
+      <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
         <div
-          ref={panelRef}
-          className="
-            w-full rounded-t-2xl bg-white p-5 shadow-xl ring-1 ring-black/10
-            md:rounded-2xl md:p-6
-            translate-y-0 md:translate-y-0
-          "
+          className="w-full max-w-lg rounded-2xl bg-white p-5 shadow-xl ring-1 ring-black/10 md:p-6"
           role="dialog"
           aria-modal="true"
         >
@@ -137,16 +156,13 @@ export default function GroupCreateModal({ open, onClose, onCreated }) {
           ) : null}
 
           {/* Form */}
-          <form onSubmit={handleSubmit} className="space-y-4">
+          <form onSubmit={handleSubmit} className="space-y-5">
+            {/* Group name */}
             <div>
-              <label
-                htmlFor="group-name"
-                className="mb-1 block text-sm font-medium text-slate-700"
-              >
+              <label className="mb-1 block text-sm font-medium text-slate-700">
                 Group name
               </label>
               <input
-                id="group-name"
                 ref={nameRef}
                 type="text"
                 className="w-full rounded-lg border border-slate-300 px-3 py-2 outline-none focus:border-[#84CC16] focus:ring-2 focus:ring-[#84CC16]/25"
@@ -158,25 +174,11 @@ export default function GroupCreateModal({ open, onClose, onCreated }) {
               />
             </div>
 
-            <div>
-              <label
-                htmlFor="group-description"
-                className="mb-1 block text-sm font-medium text-slate-700"
-              >
-                Description <span className="text-slate-400">(optional)</span>
-              </label>
-              <textarea
-                id="group-description"
-                rows={3}
-                className="w-full rounded-lg border border-slate-300 px-3 py-2 outline-none focus:border-[#84CC16] focus:ring-2 focus:ring-[#84CC16]/25"
-                placeholder="Short note for members"
-                value={description}
-                onChange={(e) => setDescription(e.target.value)}
-                maxLength={280}
-              />
-            </div>
+            {/* People Picker (IDs only; no email invites) */}
+            <PeoplePicker onChangeSelected={(ids) => setSelectedIds(ids)} />
 
-            <div className="flex items-center justify-end gap-2 pt-1">
+            {/* Actions */}
+            <div className="flex items-center justify-end gap-2">
               <button
                 type="button"
                 onClick={onClose}

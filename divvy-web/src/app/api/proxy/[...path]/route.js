@@ -14,7 +14,7 @@ const joinUrl = (parts = []) =>
     .map((p) => String(p).replace(/^\/+|\/+$/g, ""))
     .join("/");
 
-async function handle(req, { params }, method) {
+async function handle(req, ctx, method) {
   if (!BASE) {
     return NextResponse.json(
       { message: "API base not configured" },
@@ -22,7 +22,12 @@ async function handle(req, { params }, method) {
     );
   }
 
-  const rel = joinUrl(params?.path);
+  // ✅ params can be a Promise in route handlers — await it
+  const p = await ctx?.params;
+  // catch-all can be string or array; normalize to array
+  const segs = Array.isArray(p?.path) ? p.path : [p?.path].filter(Boolean);
+  const rel = joinUrl(segs);
+
   const { search } = new URL(req.url);
   const url = `${BASE}/${rel}${search}`;
 
@@ -50,23 +55,19 @@ async function handle(req, { params }, method) {
     const ct = headers.get("content-type") || "";
 
     if (ct.startsWith("multipart/form-data")) {
-      // stream through; undici needs duplex when body is a stream
       init.body = req.body;
-      // @ts-ignore - undici option
+      // @ts-ignore (undici)
       init.duplex = "half";
     } else if (
       ct.includes("application/json") ||
       ct.includes("application/x-www-form-urlencoded") ||
       ct.includes("text/plain")
     ) {
-      // buffer small bodies to avoid duplex requirement
       const bodyText = await req.text();
       init.body = bodyText;
-      // content-length will be computed automatically
     } else {
-      // fallback: stream & set duplex
       init.body = req.body;
-      // @ts-ignore
+      // @ts-ignore (undici)
       init.duplex = "half";
     }
   }

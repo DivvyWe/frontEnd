@@ -72,17 +72,17 @@ export default function AddExpenseForm({ groupId }) {
   const [splitPct, setSplitPct] = useState({}); // { [userId]: % }
   const [splitAmt, setSplitAmt] = useState({}); // { [userId]: amount }
 
-  // Contributors: “single” (default you) or manual “custom”
-  const [contributorMode, setContributorMode] = useState("single"); // "single" | "custom"
-  const [singlePayer, setSinglePayer] = useState(""); // one user id
-  const [contributors, setContributors] = useState([{ user: "", amount: "" }]); // custom rows
+  // Contributors: selectable list + per-contributor amounts
+  const [selectedContribs, setSelectedContribs] = useState([]); // [userId]
+  const [contribAmt, setContribAmt] = useState({}); // { [userId]: amount }
+  const [autoSplitContrib, setAutoSplitContrib] = useState(true); // auto equal-split unless user edits
 
   // Loading / errors
   const [loading, setLoading] = useState(true);
   const [loadingMembers, setLoadingMembers] = useState(false);
   const [error, setError] = useState("");
 
-  // Load me + members, default participants = all, default single payer = me
+  // Load me + members; defaults: participants = all, contributors = [me]
   useEffect(() => {
     let ignore = false;
     async function run() {
@@ -109,15 +109,16 @@ export default function AddExpenseForm({ groupId }) {
 
         setMembers(ms);
         const allIds = ms.map((m) => String(m._id || m.id));
-        setParticipants(allIds); // default: all selected
+        setParticipants(allIds); // default: everyone participates
 
         const meId = me?._id || me?.id || null;
         setMyId(meId);
+
+        // Default contributors = you
         if (meId && allIds.includes(String(meId))) {
-          setSinglePayer(String(meId)); // default payer = you
-          setContributors([
-            { user: String(meId), amount: amtNum ? String(amtNum) : "" },
-          ]); // custom row prefilled
+          setSelectedContribs([String(meId)]);
+          // Initial amount goes to you (auto split will re-balance if amount changes)
+          setContribAmt({ [String(meId)]: amtNum ? +amtNum.toFixed(2) : 0 });
         }
       } catch (e) {
         if (!ignore) setError(e.message || "Failed to load members.");
@@ -134,21 +135,32 @@ export default function AddExpenseForm({ groupId }) {
     };
   }, [groupId]);
 
-  // If custom mode has exactly one row (you) and total amount changes, auto-fill amount
+  // Helper: equal-split contributors
+  const rebalanceContribs = () => {
+    const ids = selectedContribs.filter(Boolean);
+    if (!ids.length) return;
+    if (!amtNum || amtNum <= 0) {
+      setContribAmt(Object.fromEntries(ids.map((id) => [id, 0])));
+      return;
+    }
+    const base = Math.floor((amtNum / ids.length) * 100) / 100;
+    let remainder = Math.round((amtNum - base * ids.length) * 100); // cents
+    const next = {};
+    for (const id of ids) {
+      const extra = remainder > 0 ? 0.01 : 0;
+      if (remainder > 0) remainder -= 1;
+      next[id] = +(base + extra).toFixed(2);
+    }
+    setContribAmt(next);
+  };
+
+  // Auto equal-split when amount or selection changes (if autosplit enabled)
   useEffect(() => {
-    if (contributorMode !== "custom") return;
-    if (!myId) return;
-    setContributors((prev) => {
-      if (prev.length !== 1) return prev;
-      const row = prev[0];
-      const isYou = String(row.user || "") === String(myId);
-      const needsAmount =
-        (!row.amount || Number(row.amount) === 0) && amtNum > 0;
-      if (isYou && needsAmount)
-        return [{ user: String(myId), amount: String(amtNum) }];
-      return prev;
-    });
-  }, [contributorMode, myId, amtNum]);
+    if (!autoSplitContrib) return;
+    if (!selectedContribs.length) return;
+    rebalanceContribs();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [amtNum, selectedContribs.join("|"), autoSplitContrib]);
 
   // Toggle participant
   function toggleParticipant(id) {
@@ -158,22 +170,22 @@ export default function AddExpenseForm({ groupId }) {
     );
   }
 
-  // Custom contributors helpers
-  function setContributorField(idx, key, value) {
-    setContributors((prev) => {
-      const next = [...prev];
-      next[idx] = { ...next[idx], [key]: value };
-      return next;
+  // Toggle contributor
+  function toggleContributor(id) {
+    const sid = String(id);
+    setSelectedContribs((prev) => {
+      if (prev.includes(sid)) {
+        const next = prev.filter((x) => x !== sid);
+        const { [sid]: _, ...rest } = contribAmt;
+        setContribAmt(rest);
+        setAutoSplitContrib(true); // re-enable autosplit on structural change
+        return next;
+      } else {
+        const next = [...prev, sid];
+        setAutoSplitContrib(true); // re-enable autosplit on structural change
+        return next;
+      }
     });
-  }
-  function addContributor() {
-    setContributors((prev) => [
-      ...prev,
-      { user: myId ? String(myId) : "", amount: "" },
-    ]);
-  }
-  function removeContributor(i) {
-    setContributors((prev) => prev.filter((_, idx) => idx !== i));
   }
 
   // ---------- SPLITS ----------
@@ -224,21 +236,16 @@ export default function AddExpenseForm({ groupId }) {
     return participants.reduce((s, id) => s + (Number(splitPct[id]) || 0), 0);
   }, [splitMode, participants, splitPct]);
 
-  // ---------- CONTRIBUTORS (single | custom) ----------
+  // ---------- CONTRIBUTORS (selected list with amounts) ----------
   const activeContributors = useMemo(() => {
-    if (!amtNum || amtNum <= 0) return [];
-    if (contributorMode === "single") {
-      if (!singlePayer) return [];
-      return [{ user: singlePayer, amount: +amtNum.toFixed(2) }];
-    }
-    // custom
-    return contributors
-      .filter((c) => c.user && Number(c.amount) > 0)
-      .map((c) => ({
-        user: c.user,
-        amount: +(Number(c.amount) || 0).toFixed(2),
-      }));
-  }, [contributorMode, singlePayer, contributors, amtNum]);
+    return selectedContribs
+      .filter(Boolean)
+      .map((id) => ({
+        user: id,
+        amount: +(Number(contribAmt[id]) || 0).toFixed(2),
+      }))
+      .filter((c) => c.amount > 0);
+  }, [selectedContribs, contribAmt]);
 
   const contributorsTotal = useMemo(
     () => activeContributors.reduce((s, c) => s + (c.amount || 0), 0),
@@ -254,6 +261,8 @@ export default function AddExpenseForm({ groupId }) {
     if (!amtNum || amtNum <= 0) return setError("Please enter a valid amount.");
     if (!participants.length)
       return setError("At least one participant is required.");
+    if (!selectedContribs.length)
+      return setError("Select at least one contributor (payer).");
 
     // Split validation
     if (splitMode === "percentage" && Math.abs(splitPctTotal - 100) > 0.01) {
@@ -277,9 +286,6 @@ export default function AddExpenseForm({ groupId }) {
     }
 
     // Contributors validation
-    if (contributorMode === "single" && !singlePayer) {
-      return setError("Please select who paid.");
-    }
     if (Math.abs(contributorsTotal - amtNum) > 0.01) {
       return setError(
         `Contributors total (${fmt(
@@ -293,9 +299,9 @@ export default function AddExpenseForm({ groupId }) {
       amount: amtNum,
       groupId: String(groupId).trim(),
       splitType: splitMode, // equal | percentage | custom
-      participants: participants.map(String), // ✅ include participants as IDs
-      splits: activeSplits, // still send explicit splits
-      contributors: activeContributors, // who paid
+      participants: participants.map(String),
+      splits: activeSplits,
+      contributors: activeContributors,
     };
 
     try {
@@ -364,60 +370,35 @@ export default function AddExpenseForm({ groupId }) {
         </div>
       </div>
 
-      {/* MODE SWITCHERS */}
-      <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
-        <div className="rounded-xl border border-slate-200 bg-white p-3">
-          <div className="mb-2 flex items-center justify-between">
-            <h3 className="text-xs font-semibold uppercase tracking-wide text-slate-700">
-              Split
-            </h3>
-            <span className="text-[11px] text-slate-500">
-              How to divide the cost
-            </span>
-          </div>
-          <div className="flex flex-wrap gap-2">
-            <Pill
-              active={splitMode === "equal"}
-              onClick={() => setSplitMode("equal")}
-            >
-              Equal
-            </Pill>
-            <Pill
-              active={splitMode === "percentage"}
-              onClick={() => setSplitMode("percentage")}
-            >
-              Percentage
-            </Pill>
-            <Pill
-              active={splitMode === "custom"}
-              onClick={() => setSplitMode("custom")}
-            >
-              Custom
-            </Pill>
-          </div>
+      {/* Split mode */}
+      <div className="rounded-xl border border-slate-200 bg-white p-3">
+        <div className="mb-2 flex items-center justify-between">
+          <h3 className="text-xs font-semibold uppercase tracking-wide text-slate-700">
+            Split
+          </h3>
+          <span className="text-[11px] text-slate-500">
+            How to divide the cost
+          </span>
         </div>
-
-        <div className="rounded-xl border border-slate-200 bg-white p-3">
-          <div className="mb-2 flex items-center justify-between">
-            <h3 className="text-xs font-semibold uppercase tracking-wide text-slate-700">
-              Contributors
-            </h3>
-            <span className="text-[11px] text-slate-500">Who paid</span>
-          </div>
-          <div className="flex flex-wrap gap-2">
-            <Pill
-              active={contributorMode === "single"}
-              onClick={() => setContributorMode("single")}
-            >
-              Single
-            </Pill>
-            <Pill
-              active={contributorMode === "custom"}
-              onClick={() => setContributorMode("custom")}
-            >
-              Custom
-            </Pill>
-          </div>
+        <div className="flex flex-wrap gap-2">
+          <Pill
+            active={splitMode === "equal"}
+            onClick={() => setSplitMode("equal")}
+          >
+            Equal
+          </Pill>
+          <Pill
+            active={splitMode === "percentage"}
+            onClick={() => setSplitMode("percentage")}
+          >
+            Percentage
+          </Pill>
+          <Pill
+            active={splitMode === "custom"}
+            onClick={() => setSplitMode("custom")}
+          >
+            Custom
+          </Pill>
         </div>
       </div>
 
@@ -558,146 +539,123 @@ export default function AddExpenseForm({ groupId }) {
         )}
       </div>
 
-      {/* Contributors */}
+      {/* Contributors (no mode switch; just select & amounts) */}
       <div className="space-y-2">
         <div className="mb-2 flex items-center justify-between">
           <label className="text-sm font-medium text-slate-700">
-            Contributors
+            Contributors (payers)
           </label>
           <span className="text-xs text-slate-500">
             Must total {fmt(amtNum || 0)}
           </span>
         </div>
 
-        {/* SINGLE: pick exactly one payer (default YOU) */}
-        {contributorMode === "single" ? (
-          <>
-            {!members.length ? (
-              <div className="rounded-md bg-slate-50 px-3 py-2 text-xs text-slate-600">
-                No members found.
-              </div>
-            ) : (
-              <ul className="grid grid-cols-2 gap-2 md:grid-cols-3 xl:grid-cols-4">
-                {members.map((m) => {
-                  const id = String(m._id || m.id);
-                  const isYou = myId && String(myId) === id;
-                  const name = toTitle(
-                    m.username || m.email || m.phone || "Member"
-                  );
-                  const selected = String(singlePayer || "") === id;
-                  return (
-                    <li key={id}>
-                      <button
-                        type="button"
-                        onClick={() => setSinglePayer(id)}
-                        className={`w-full rounded-lg border px-3 py-2 text-left text-sm shadow-sm flex items-center justify-between ${
-                          selected
-                            ? "border-sky-300 bg-sky-50 text-sky-900"
-                            : "border-slate-200 bg-white text-slate-800 hover:bg-slate-50"
-                        }`}
-                      >
-                        <span className="line-clamp-1">
-                          {name}
-                          {isYou && <YouBadge />}
-                        </span>
-                        {selected && (
-                          <CheckIcon className="h-4 w-4 text-sky-700" />
-                        )}
-                      </button>
-                    </li>
-                  );
-                })}
-              </ul>
-            )}
-
-            {/* Preview */}
-            <div className="mt-2 rounded-lg bg-slate-50 px-3 py-2 text-xs text-slate-600">
-              Contributors total:{" "}
-              <span className="font-semibold">{fmt(contributorsTotal)}</span>
-              {singlePayer && amtNum > 0 && " (100%)"}
-            </div>
-          </>
+        {!members.length ? (
+          <div className="rounded-md bg-slate-50 px-3 py-2 text-xs text-slate-600">
+            No members found.
+          </div>
         ) : (
-          // CUSTOM: manual rows (first row prefilled as You)
           <>
-            {!members.length ? (
-              <div className="rounded-md bg-slate-50 px-3 py-2 text-xs text-slate-600">
-                Load members to select contributors.
-              </div>
-            ) : (
-              <div className="space-y-2">
-                {contributors.map((row, idx) => (
-                  <div
-                    key={idx}
-                    className="flex gap-2 rounded-lg border border-slate-200 bg-white p-2"
-                  >
-                    <select
-                      className="w-1/2 rounded-md border border-slate-200 bg-white px-2 py-2 text-sm"
-                      value={row.user}
-                      onChange={(e) =>
-                        setContributorField(idx, "user", e.target.value)
-                      }
-                    >
-                      <option value="">Select member…</option>
-                      {members.map((m) => (
-                        <option key={m._id || m.id} value={m._id || m.id}>
-                          {toTitle(
-                            m.username || m.email || m.phone || "Member"
-                          )}
-                          {myId && String(myId) === String(m._id || m.id)
-                            ? " (You)"
-                            : ""}
-                        </option>
-                      ))}
-                    </select>
-
-                    <input
-                      type="number"
-                      min="0"
-                      step="0.01"
-                      className="w-1/2 rounded-md border border-slate-200 bg-white px-2 py-2 text-sm"
-                      placeholder="Amount"
-                      value={row.amount}
-                      onChange={(e) =>
-                        setContributorField(idx, "amount", e.target.value)
-                      }
-                    />
-
+            {/* selectable members */}
+            <ul className="grid grid-cols-2 gap-2 md:grid-cols-3 xl:grid-cols-4">
+              {members.map((m) => {
+                const id = String(m._id || m.id);
+                const isYou = myId && String(myId) === id;
+                const name = toTitle(
+                  m.username || m.email || m.phone || "Member"
+                );
+                const selected = selectedContribs.includes(id);
+                return (
+                  <li key={id}>
                     <button
                       type="button"
-                      onClick={() => removeContributor(idx)}
-                      className="rounded-md border border-slate-200 px-2 text-sm text-slate-600 hover:bg-slate-50"
-                      aria-label="Remove"
-                      title="Remove"
+                      onClick={() => toggleContributor(id)}
+                      className={`w-full rounded-lg border px-3 py-2 text-left text-sm shadow-sm flex items-center justify-between ${
+                        selected
+                          ? "border-sky-300 bg-sky-50 text-sky-900"
+                          : "border-slate-200 bg-white text-slate-800 hover:bg-slate-50"
+                      }`}
                     >
-                      ✕
+                      <span className="line-clamp-1">
+                        {name}
+                        {isYou && <YouBadge />}
+                      </span>
+                      {selected && (
+                        <CheckIcon className="h-4 w-4 text-sky-700" />
+                      )}
                     </button>
+                  </li>
+                );
+              })}
+            </ul>
+
+            {/* amounts for selected contributors */}
+            {selectedContribs.length > 0 && (
+              <div className="mt-3 space-y-2 rounded-lg border border-slate-200 bg-white p-3">
+                <div className="flex items-center justify-between">
+                  <div className="text-xs font-medium text-slate-700">
+                    Amount per contributor
                   </div>
-                ))}
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setAutoSplitContrib(true);
+                      rebalanceContribs();
+                    }}
+                    className="rounded-md border border-slate-200 bg-slate-50 px-2 py-1 text-xs font-medium text-slate-700 hover:bg-slate-100"
+                  >
+                    Rebalance equally
+                  </button>
+                </div>
+                <div className="grid grid-cols-1 gap-2 sm:grid-cols-2">
+                  {selectedContribs.map((id) => {
+                    const user = members.find(
+                      (m) => String(m._id || m.id) === id
+                    );
+                    const isYou = myId && String(myId) === id;
+                    const name = toTitle(
+                      user?.username || user?.email || user?.phone || "Member"
+                    );
+                    const val = contribAmt[id] ?? "";
+                    return (
+                      <div key={id} className="flex items-center gap-2">
+                        <div className="w-1/2 truncate text-xs text-slate-700">
+                          {name}
+                          {isYou && <YouBadge />}
+                        </div>
+                        <input
+                          type="number"
+                          min="0"
+                          step="0.01"
+                          value={val}
+                          onChange={(e) => {
+                            const v = e.target.value;
+                            setContribAmt((s) => ({ ...s, [id]: v }));
+                            setAutoSplitContrib(false); // user took manual control
+                          }}
+                          placeholder="Amount"
+                          className="w-1/2 rounded-md border border-slate-200 bg-white px-2 py-1.5 text-sm"
+                        />
+                      </div>
+                    );
+                  })}
+                </div>
+
+                <div className="text-xs text-slate-600">
+                  Contributors total:{" "}
+                  <span
+                    className={`font-semibold ${
+                      Math.abs(contributorsTotal - amtNum) < 0.001
+                        ? "text-emerald-700"
+                        : "text-rose-700"
+                    }`}
+                  >
+                    {fmt(contributorsTotal)}
+                  </span>{" "}
+                  / {fmt(amtNum)}
+                </div>
               </div>
             )}
-
-            <div className="mt-2 flex items-center justify-between text-xs">
-              <div className="text-slate-600">
-                Contributors total:{" "}
-                <span
-                  className={`font-semibold ${
-                    Math.abs(contributorsTotal - amtNum) < 0.001
-                      ? "text-emerald-700"
-                      : "text-rose-700"
-                  }`}
-                >
-                  {fmt(contributorsTotal)}
-                </span>
-              </div>
-              <button
-                type="button"
-                onClick={addContributor}
-                className="rounded-md border border-slate-200 bg-slate-50 px-2 py-1 text-xs font-medium text-slate-700 hover:bg-slate-100"
-              >
-                + Add contributor
-              </button>
-            </div>
           </>
         )}
       </div>

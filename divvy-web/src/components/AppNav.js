@@ -3,8 +3,9 @@
 
 import Link from "next/link";
 import { usePathname } from "next/navigation";
-import { FiHome, FiUsers, FiList, FiSettings } from "react-icons/fi";
+import { FiUsers, FiList, FiSettings } from "react-icons/fi";
 import LogoutButton from "@/components/LogoutButton";
+import NotificationBell from "@/components/NotificationBell";
 
 function TopTab({ href, icon: Icon, label }) {
   const pathname = usePathname();
@@ -27,7 +28,6 @@ function TopTab({ href, icon: Icon, label }) {
       >
         {label}
       </span>
-      {/* subtle active underline */}
       <span
         aria-hidden
         className={`absolute inset-x-2 -bottom-[6px] h-0.5 rounded-full ${
@@ -80,13 +80,15 @@ export default function AppNav({ me }) {
 
           {/* Desktop tabs */}
           <nav className="hidden md:flex items-center gap-2">
-            <TopTab href="/dashboard" icon={FiHome} label="Dashboard" />
             <TopTab href="/groups" icon={FiUsers} label="Groups" />
+            {/* If you also want Expenses on desktop, keep this line: */}
             <TopTab href="/expenses" icon={FiList} label="Expenses" />
             <TopTab href="/settings" icon={FiSettings} label="Settings" />
           </nav>
 
           <div className="flex items-center gap-3">
+            {/* Mount the bell ONCE (desktop & mobile) — in the top bar only */}
+            <NotificationBell me={me} />
             <div
               className="grid h-8 w-8 place-items-center rounded-full bg-slate-200 text-slate-700 text-sm font-semibold"
               title={me?.username || "You"}
@@ -100,14 +102,14 @@ export default function AppNav({ me }) {
         </div>
       </div>
 
-      {/* Bottom tabs (mobile) */}
+      {/* Bottom tabs (mobile only) */}
       <div
         className="fixed inset-x-0 bottom-0 z-20 bg-white/90 backdrop-blur shadow-[0_-6px_20px_rgba(0,0,0,0.04)] md:hidden"
         style={{ paddingBottom: "env(safe-area-inset-bottom)" }}
       >
         <div className="mx-auto flex max-w-6xl items-center justify-between px-4">
-          <MobileTab href="/dashboard" icon={FiHome} label="Home" />
           <MobileTab href="/groups" icon={FiUsers} label="Groups" />
+          {/* If you want Expenses on mobile, keep this line: */}
           <MobileTab href="/expenses" icon={FiList} label="Expenses" />
           <MobileTab href="/settings" icon={FiSettings} label="Settings" />
         </div>
