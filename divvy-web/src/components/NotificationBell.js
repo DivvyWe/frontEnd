@@ -5,6 +5,7 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import { FiBell, FiCheck, FiX } from "react-icons/fi";
 import useNotifications from "@/hooks/useNotifications";
 import { useRouter } from "next/navigation";
+import { getSocket } from "@/lib/socketClient"; // <-- NEW
 
 function TimeAgo({ iso }) {
   const text = useMemo(() => {
@@ -29,6 +30,60 @@ export default function NotificationBell({ me }) {
 
   const [open, setOpen] = useState(false);
   const containerRef = useRef(null);
+
+  // --- Realtime: connect & listen if user enabled it ---
+  useEffect(() => {
+    let cleanup = () => {};
+    const enabled =
+      typeof window !== "undefined" &&
+      localStorage.getItem("rt_enabled") === "true";
+
+    if (!enabled) return;
+
+    let socket;
+    let onNew;
+
+    (async () => {
+      try {
+        // ensure we know who we are (server will trust room join)
+        const meRes = await fetch("/api/proxy/auth/me", {
+          headers: { Accept: "application/json" },
+          cache: "no-store",
+        });
+        if (!meRes.ok) return;
+        const meJson = await meRes.json().catch(() => null);
+        const userId = meJson?._id || meJson?.id;
+        if (!userId) return;
+
+        socket = getSocket();
+        if (!socket.connected) socket.connect();
+
+        // (re)join room on connect
+        const join = () => socket.emit("auth:join", { userId });
+        socket.on("connect", join);
+        join();
+
+        // when a new notification arrives, refresh the list/badge
+        onNew = () => {
+          // lightweight: just refetch; your hook will update items + unread
+          load();
+        };
+        socket.on("notification:new", onNew);
+
+        cleanup = () => {
+          try {
+            socket.off("notification:new", onNew);
+            socket.off("connect", join);
+            // don't disconnect globally; other listeners may exist
+          } catch {}
+        };
+      } catch {
+        /* noop */
+      }
+    })();
+
+    return () => cleanup();
+  }, [load]);
 
   // Silent initial load; periodic refresh handled in the hook
   useEffect(() => {
@@ -123,8 +178,17 @@ export default function NotificationBell({ me }) {
                         onClick={async () => {
                           if (isUnread) markRead(n._id); // auto-read on click
                           setOpen(false); // close popover
-                          if (n.expense) router.push(`/expenses/${n.expense}`);
-                          else if (n.group) router.push(`/groups/${n.group}`);
+
+                          // Safer routing:
+                          // - if both expense + group: go to /expenses/:groupId/:expenseId
+                          // - else try expense-only fallback, else group
+                          if (n.expense && n.group) {
+                            router.push(`/expenses/${n.group}/${n.expense}`);
+                          } else if (n.expense) {
+                            router.push(`/expenses/${n.expense}`);
+                          } else if (n.group) {
+                            router.push(`/groups/${n.group}`);
+                          }
                         }}
                         title={n.message || "New activity"}
                       >
@@ -135,7 +199,7 @@ export default function NotificationBell({ me }) {
                       </div>
                     </div>
 
-                    {/* Only remove (X) icon as requested */}
+                    {/* Remove (X) */}
                     <button
                       onClick={() => removeOne(n._id)}
                       title="Remove"

@@ -1,21 +1,25 @@
 // src/app/groups/[groupId]/page.js
 import { headers, cookies } from "next/headers";
 import { redirect } from "next/navigation";
+import Link from "next/link";
+import { Settings } from "lucide-react";
 
 import GroupHeader from "@/components/groups/GroupHeader";
 import GroupSummary from "@/components/groups/GroupSummary";
-import GroupMembersSection from "@/components/groups/GroupMembersSection";
-import GroupSettlements from "@/components/groups/GroupSettlements";
 import GroupExpenses from "@/components/groups/GroupExpenses";
 import InviteGate from "@/components/groups/InviteGate";
-
+import GroupSettingsMount from "@/components/groups/GroupSettingsMount";
+import GroupActivity from "@/components/activity/GroupActivity";
 export const dynamic = "force-dynamic";
 
 const fmt = (n) => `$${(Number(n) || 0).toFixed(2)}`;
 
 export default async function GroupPage({ params, searchParams }) {
-  const { groupId } = params;
-  const sort = searchParams?.sort || "new";
+  // ✅ Await params/searchParams access (Next warning)
+  const { groupId } = await params;
+  const sp = await searchParams;
+  const sort = sp?.sort || "new";
+  const showSettings = String(sp?.settings || "") === "1";
 
   // Build absolute base URL (SSR-safe)
   const h = await headers();
@@ -33,18 +37,15 @@ export default async function GroupPage({ params, searchParams }) {
     cache: "no-store",
   };
 
-  // Always check auth first
+  // Auth
   const meRes = await fetch(`${base}/api/proxy/auth/me`, common).catch(
     () => null
   );
-  if (!meRes || [401, 403].includes(meRes.status)) {
-    // Not logged in -> signin
-    redirect("/auth/signin");
-  }
+  if (!meRes || [401, 403].includes(meRes.status)) redirect("/auth/signin");
   const me = meRes?.ok ? await meRes.json().catch(() => null) : null;
   const myId = me?._id || me?.id || null;
 
-  // Try the protected group resources
+  // Data
   const [groupRes, summaryRes, expensesRes, membersRes] = await Promise.all([
     fetch(`${base}/api/proxy/groups/${groupId}`, common).catch(() => null),
     fetch(`${base}/api/proxy/groups/${groupId}/summary`, common).catch(
@@ -61,8 +62,6 @@ export default async function GroupPage({ params, searchParams }) {
   const anyForbidden = [groupRes, summaryRes, expensesRes].some(
     (r) => r && [401, 403].includes(r.status)
   );
-
-  // 🚪 Long-term fix: if authenticated but not a member yet, show InviteGate (no redirect)
   if (anyForbidden) {
     return (
       <div className="space-y-6">
@@ -71,7 +70,6 @@ export default async function GroupPage({ params, searchParams }) {
     );
   }
 
-  // If server/network trouble
   if (!groupRes || !summaryRes || !expensesRes) {
     return (
       <div className="space-y-6">
@@ -94,7 +92,6 @@ export default async function GroupPage({ params, searchParams }) {
   const summary = (await summaryRes.json().catch(() => ({}))) || {};
   const expensesPayload = (await expensesRes.json().catch(() => ({}))) || {};
 
-  // await group json (deferred above so we can try/catch cleanly)
   const gRaw = group && (await group.catch?.(() => null));
   const groupDoc = gRaw?.group || gRaw || null;
 
@@ -108,28 +105,25 @@ export default async function GroupPage({ params, searchParams }) {
   if (!members?.length && Array.isArray(groupDoc?.members))
     members = groupDoc.members;
 
-  const settlements = summary?.settlements || [];
+  // ✅ Robust settlements extraction
+  const settlements = Array.isArray(summary?.settlements)
+    ? summary.settlements
+    : Array.isArray(summary?.all)
+    ? summary.all
+    : [
+        ...(Array.isArray(summary?.youOwe) ? summary.youOwe : []),
+        ...(Array.isArray(summary?.owedToYou) ? summary.owedToYou : []),
+        ...(Array.isArray(summary?.othersOweEachOther)
+          ? summary.othersOweEachOther
+          : []),
+      ];
+
   const expenses = expensesPayload?.expenses || [];
 
-  // Permissions
-  const ownerId =
-    groupDoc?.createdBy?._id ||
-    groupDoc?.owner?._id ||
-    groupDoc?.createdBy ||
-    groupDoc?.owner ||
-    null;
-  const canManageMembers = ownerId && myId && String(ownerId) === String(myId);
+  const isMember =
+    Array.isArray(members) &&
+    members.some((m) => String(m?._id || m?.id) === String(myId));
 
-  // ✅ Fix totals: use `from` / `to` from API, not `fromId` / `toId`
-  const youOweTotal = (settlements || [])
-    .filter((s) => String(s.from) === String(myId || ""))
-    .reduce((sum, s) => sum + (s.amount || 0), 0);
-
-  const youAreOwedTotal = (settlements || [])
-    .filter((s) => String(s.to) === String(myId || ""))
-    .reduce((sum, s) => sum + (s.amount || 0), 0);
-
-  // Sort
   const sorted = [...expenses].sort((a, b) => {
     if (sort === "old") return new Date(a.createdAt) - new Date(b.createdAt);
     if (sort === "amtAsc") return (a.amount || 0) - (b.amount || 0);
@@ -139,19 +133,22 @@ export default async function GroupPage({ params, searchParams }) {
 
   return (
     <div className="space-y-6 overflow-x-hidden">
-      <GroupHeader groupName={groupDoc?.name || "Group"} groupId={groupId} />
+      <div className="flex items-start justify-between gap-3">
+        <GroupHeader groupName={groupDoc?.name || "Group"} groupId={groupId} />
+        {isMember && (
+          <Link
+            href={`/groups/${groupId}?settings=1`}
+            prefetch={false}
+            aria-label="Open group settings"
+            title="Settings"
+            className="inline-flex h-10 w-10 items-center justify-center rounded-full border border-slate-300 bg-white text-slate-700 hover:bg-slate-100"
+          >
+            <Settings className="h-5 w-5" />
+          </Link>
+        )}
+      </div>
 
-      <GroupSummary currentUserId={myId} settlements={settlements} fmt={fmt} />
-
-      <GroupMembersSection
-        groupId={groupId}
-        members={members}
-        ownerId={ownerId}
-        canManage={canManageMembers}
-        currentUserId={myId}
-      />
-
-      <GroupSettlements settlements={settlements} fmt={fmt} />
+      <GroupSummary currentUserId={myId} settlements={settlements} />
 
       <GroupExpenses
         groupId={groupId}
@@ -159,6 +156,15 @@ export default async function GroupPage({ params, searchParams }) {
         expenses={sorted}
         fmt={fmt}
       />
+
+      <GroupSettingsMount
+        open={showSettings}
+        group={{ ...groupDoc, members }}
+        me={me}
+        groupId={groupId}
+      />
+
+      <GroupActivity groupId={params.groupId} />
     </div>
   );
 }

@@ -21,8 +21,8 @@ export default function GroupHeader({ groupName, groupId }) {
         </Link>
 
         <Link
-          href={`/expenses/${groupId}/settle`}
-          className="rounded-lg bg-sky-500 px-3 py-2 text-sm font-semibold text-white hover:bg-sky-600 transition-colors"
+          href={`/groups/${groupId}/settle`}
+          className="rounded-md bg-slate-900 px-3 py-1.5 text-sm font-semibold text-white hover:bg-slate-800"
         >
           Settle up
         </Link>

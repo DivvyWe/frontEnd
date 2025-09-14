@@ -1,7 +1,7 @@
 // src/components/expenses/AddExpenseForm.js
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 
 const fmt = (n) => `$${(Number(n) || 0).toFixed(2)}`;
@@ -52,7 +52,12 @@ function YouBadge() {
   );
 }
 
-export default function AddExpenseForm({ groupId }) {
+export default function AddExpenseForm({
+  groupId,
+  mode = "create", // "create" | "edit"
+  expenseId = null, // required for edit
+  initialData = null, // prefilled expense object for edit
+}) {
   const router = useRouter();
 
   // Basics
@@ -72,17 +77,73 @@ export default function AddExpenseForm({ groupId }) {
   const [splitPct, setSplitPct] = useState({}); // { [userId]: % }
   const [splitAmt, setSplitAmt] = useState({}); // { [userId]: amount }
 
-  // Contributors: selectable list + per-contributor amounts
+  // Contributors
   const [selectedContribs, setSelectedContribs] = useState([]); // [userId]
   const [contribAmt, setContribAmt] = useState({}); // { [userId]: amount }
-  const [autoSplitContrib, setAutoSplitContrib] = useState(true); // auto equal-split unless user edits
+  const [autoSplitContrib, setAutoSplitContrib] = useState(true);
 
   // Loading / errors
   const [loading, setLoading] = useState(true);
   const [loadingMembers, setLoadingMembers] = useState(false);
   const [error, setError] = useState("");
 
-  // Load me + members; defaults: participants = all, contributors = [me]
+  // 🔒 submission guard
+  const [submitting, setSubmitting] = useState(false);
+  const submitRef = useRef(false);
+
+  // Prefill (edit) helper — apply after members are known so name lookups work
+  const applyInitialData = () => {
+    if (!initialData) return;
+
+    // basics
+    setDescription(initialData.description || "");
+    setAmount(String(Number(initialData.amount || 0).toFixed(2)));
+    setSplitMode(initialData.splitType || "equal");
+
+    // participants from splits
+    const splitUsers = (initialData.splits || [])
+      .map((s) => String(s?.user?._id || s?.user))
+      .filter(Boolean);
+    if (splitUsers.length) setParticipants(splitUsers);
+
+    // splitPct / splitAmt
+    const pctObj = {};
+    const amtObj = {};
+    (initialData.splits || []).forEach((s) => {
+      const uid = String(s?.user?._id || s?.user);
+      if (!uid) return;
+      if (initialData.splitType === "percentage") {
+        // controller expects percentage present for percentage mode
+        if (typeof s.percentage === "number") pctObj[uid] = s.percentage;
+        else if (amtNum > 0 && typeof s.amount === "number") {
+          // fallback: derive %
+          pctObj[uid] = +((s.amount / (initialData.amount || 1)) * 100).toFixed(
+            2
+          );
+        }
+      } else {
+        // custom or equal → amounts
+        if (typeof s.amount === "number") amtObj[uid] = +s.amount.toFixed(2);
+      }
+    });
+    if (initialData.splitType === "percentage") setSplitPct(pctObj);
+    else setSplitAmt(amtObj);
+
+    // contributors
+    const contribIds = [];
+    const contribMap = {};
+    (initialData.contributors || []).forEach((c) => {
+      const uid = String(c?.user?._id || c?.user);
+      if (!uid) return;
+      contribIds.push(uid);
+      contribMap[uid] = +Number(c.amount || 0).toFixed(2);
+    });
+    setSelectedContribs(contribIds);
+    setContribAmt(contribMap);
+    setAutoSplitContrib(false); // don't override their amounts
+  };
+
+  // Load me + members; by default (create) participants = all, contributors = [me]
   useEffect(() => {
     let ignore = false;
     async function run() {
@@ -109,16 +170,19 @@ export default function AddExpenseForm({ groupId }) {
 
         setMembers(ms);
         const allIds = ms.map((m) => String(m._id || m.id));
-        setParticipants(allIds); // default: everyone participates
-
         const meId = me?._id || me?.id || null;
         setMyId(meId);
 
-        // Default contributors = you
-        if (meId && allIds.includes(String(meId))) {
-          setSelectedContribs([String(meId)]);
-          // Initial amount goes to you (auto split will re-balance if amount changes)
-          setContribAmt({ [String(meId)]: amtNum ? +amtNum.toFixed(2) : 0 });
+        if (mode === "create") {
+          // defaults for create
+          setParticipants(allIds);
+          if (meId && allIds.includes(String(meId))) {
+            setSelectedContribs([String(meId)]);
+            setContribAmt({ [String(meId)]: amtNum ? +amtNum.toFixed(2) : 0 });
+          }
+        } else {
+          // edit: apply initial data after members known
+          applyInitialData();
         }
       } catch (e) {
         if (!ignore) setError(e.message || "Failed to load members.");
@@ -133,7 +197,8 @@ export default function AddExpenseForm({ groupId }) {
     return () => {
       ignore = true;
     };
-  }, [groupId]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [groupId, mode]);
 
   // Helper: equal-split contributors
   const rebalanceContribs = () => {
@@ -178,11 +243,11 @@ export default function AddExpenseForm({ groupId }) {
         const next = prev.filter((x) => x !== sid);
         const { [sid]: _, ...rest } = contribAmt;
         setContribAmt(rest);
-        setAutoSplitContrib(true); // re-enable autosplit on structural change
+        setAutoSplitContrib(true);
         return next;
       } else {
         const next = [...prev, sid];
-        setAutoSplitContrib(true); // re-enable autosplit on structural change
+        setAutoSplitContrib(true);
         return next;
       }
     });
@@ -207,7 +272,11 @@ export default function AddExpenseForm({ groupId }) {
     if (!amtNum || amtNum <= 0 || !ids.length) return [];
     return ids.map((id) => {
       const p = Number(splitPct[id]) || 0;
-      return { user: id, amount: +(amtNum * (p / 100)).toFixed(2) };
+      return {
+        user: id,
+        percentage: p,
+        amount: +(amtNum * (p / 100)).toFixed(2),
+      };
     });
   }, [splitMode, amtNum, participants, splitPct]);
 
@@ -236,7 +305,7 @@ export default function AddExpenseForm({ groupId }) {
     return participants.reduce((s, id) => s + (Number(splitPct[id]) || 0), 0);
   }, [splitMode, participants, splitPct]);
 
-  // ---------- CONTRIBUTORS (selected list with amounts) ----------
+  // ---------- CONTRIBUTORS ----------
   const activeContributors = useMemo(() => {
     return selectedContribs
       .filter(Boolean)
@@ -255,6 +324,7 @@ export default function AddExpenseForm({ groupId }) {
   // ---------- SUBMIT ----------
   async function onSubmit(e) {
     e.preventDefault();
+    if (submitting || submitRef.current) return; // 🚫 guard multiple clicks
     setError("");
 
     if (!description.trim()) return setError("Please enter a description.");
@@ -298,28 +368,66 @@ export default function AddExpenseForm({ groupId }) {
       description: description.trim(),
       amount: amtNum,
       groupId: String(groupId).trim(),
-      splitType: splitMode, // equal | percentage | custom
+      splitType: splitMode,
       participants: participants.map(String),
-      splits: activeSplits,
+      splits: activeSplits, // includes percentage for percentage mode
       contributors: activeContributors,
     };
 
     try {
-      const res = await fetch(`/api/proxy/expenses`, {
-        method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-          Accept: "application/json",
-        },
-        body: JSON.stringify(payload),
-      });
+      setSubmitting(true);
+      submitRef.current = true;
+
+      let res;
+      if (mode === "edit" && expenseId) {
+        // Assumes you expose this route in your API proxy to backend update
+        res = await fetch(
+          `/api/proxy/expenses/${encodeURIComponent(expenseId)}`,
+          {
+            method: "PUT",
+            headers: {
+              "Content-Type": "application/json",
+              Accept: "application/json",
+            },
+            body: JSON.stringify(payload),
+          }
+        );
+      } else {
+        res = await fetch(`/api/proxy/expenses`, {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json",
+            Accept: "application/json",
+          },
+          body: JSON.stringify(payload),
+        });
+      }
+
       if (!res.ok) {
         const j = await res.json().catch(() => null);
-        throw new Error(j?.message || "Failed to create expense");
+        throw new Error(
+          j?.message ||
+            (mode === "edit"
+              ? "Failed to update expense"
+              : "Failed to create expense")
+        );
       }
-      router.replace(`/groups/${groupId}`);
+
+      // Navigate
+      if (mode === "edit" && expenseId) {
+        router.replace(`/expenses/${groupId}/${expenseId}`);
+      } else {
+        router.replace(`/groups/${groupId}`);
+      }
     } catch (e) {
-      setError(e.message || "Failed to create expense.");
+      setSubmitting(false);
+      submitRef.current = false;
+      setError(
+        e.message ||
+          (mode === "edit"
+            ? "Failed to update expense."
+            : "Failed to create expense.")
+      );
     }
   }
 
@@ -332,7 +440,7 @@ export default function AddExpenseForm({ groupId }) {
   }
 
   return (
-    <form onSubmit={onSubmit} className="space-y-4">
+    <form onSubmit={onSubmit} className="space-y-4" aria-busy={submitting}>
       {error && (
         <div className="rounded-lg border border-rose-200 bg-rose-50 px-3 py-2 text-sm text-rose-800">
           {error}
@@ -348,9 +456,10 @@ export default function AddExpenseForm({ groupId }) {
           <input
             type="text"
             value={description}
+            disabled={submitting}
             onChange={(e) => setDescription(e.target.value)}
             placeholder="e.g., Dinner at Ichi"
-            className="mt-1 w-full rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm shadow-sm focus:border-slate-300 focus:outline-none"
+            className="mt-1 w-full rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm shadow-sm focus:border-slate-300 focus:outline-none disabled:opacity-60"
           />
         </div>
 
@@ -363,9 +472,10 @@ export default function AddExpenseForm({ groupId }) {
             min="0"
             step="0.01"
             value={amount}
+            disabled={submitting}
             onChange={(e) => setAmount(e.target.value)}
             placeholder="120.00"
-            className="mt-1 w-full rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm shadow-sm focus:border-slate-300 focus:outline-none"
+            className="mt-1 w-full rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm shadow-sm focus:border-slate-300 focus:outline-none disabled:opacity-60"
           />
         </div>
       </div>
@@ -383,19 +493,19 @@ export default function AddExpenseForm({ groupId }) {
         <div className="flex flex-wrap gap-2">
           <Pill
             active={splitMode === "equal"}
-            onClick={() => setSplitMode("equal")}
+            onClick={() => !submitting && setSplitMode("equal")}
           >
             Equal
           </Pill>
           <Pill
             active={splitMode === "percentage"}
-            onClick={() => setSplitMode("percentage")}
+            onClick={() => !submitting && setSplitMode("percentage")}
           >
             Percentage
           </Pill>
           <Pill
             active={splitMode === "custom"}
-            onClick={() => setSplitMode("custom")}
+            onClick={() => !submitting && setSplitMode("custom")}
           >
             Custom
           </Pill>
@@ -435,12 +545,13 @@ export default function AddExpenseForm({ groupId }) {
                   <li key={id}>
                     <button
                       type="button"
+                      disabled={submitting}
                       onClick={() => toggleParticipant(id)}
                       className={`w-full rounded-lg border px-3 py-2 text-left text-sm shadow-sm flex items-center justify-between ${
                         selected
                           ? "border-emerald-300 bg-emerald-50 text-emerald-900"
                           : "border-slate-200 bg-white text-slate-800 hover:bg-slate-50"
-                      }`}
+                      } disabled:opacity-60`}
                     >
                       <span className="line-clamp-1">
                         {name}
@@ -487,6 +598,7 @@ export default function AddExpenseForm({ groupId }) {
                           min="0"
                           step="0.01"
                           value={val}
+                          disabled={submitting}
                           onChange={(e) => {
                             const v = e.target.value;
                             if (splitMode === "percentage") {
@@ -498,7 +610,7 @@ export default function AddExpenseForm({ groupId }) {
                           placeholder={
                             splitMode === "percentage" ? "Percent" : "Amount"
                           }
-                          className="w-1/2 rounded-md border border-slate-200 bg-white px-2 py-1.5 text-sm"
+                          className="w-1/2 rounded-md border border-slate-200 bg-white px-2 py-1.5 text-sm disabled:opacity-60"
                         />
                       </div>
                     );
@@ -539,7 +651,7 @@ export default function AddExpenseForm({ groupId }) {
         )}
       </div>
 
-      {/* Contributors (no mode switch; just select & amounts) */}
+      {/* Contributors */}
       <div className="space-y-2">
         <div className="mb-2 flex items-center justify-between">
           <label className="text-sm font-medium text-slate-700">
@@ -556,7 +668,6 @@ export default function AddExpenseForm({ groupId }) {
           </div>
         ) : (
           <>
-            {/* selectable members */}
             <ul className="grid grid-cols-2 gap-2 md:grid-cols-3 xl:grid-cols-4">
               {members.map((m) => {
                 const id = String(m._id || m.id);
@@ -569,12 +680,13 @@ export default function AddExpenseForm({ groupId }) {
                   <li key={id}>
                     <button
                       type="button"
+                      disabled={submitting}
                       onClick={() => toggleContributor(id)}
                       className={`w-full rounded-lg border px-3 py-2 text-left text-sm shadow-sm flex items-center justify-between ${
                         selected
                           ? "border-sky-300 bg-sky-50 text-sky-900"
                           : "border-slate-200 bg-white text-slate-800 hover:bg-slate-50"
-                      }`}
+                      } disabled:opacity-60`}
                     >
                       <span className="line-clamp-1">
                         {name}
@@ -589,7 +701,6 @@ export default function AddExpenseForm({ groupId }) {
               })}
             </ul>
 
-            {/* amounts for selected contributors */}
             {selectedContribs.length > 0 && (
               <div className="mt-3 space-y-2 rounded-lg border border-slate-200 bg-white p-3">
                 <div className="flex items-center justify-between">
@@ -598,11 +709,12 @@ export default function AddExpenseForm({ groupId }) {
                   </div>
                   <button
                     type="button"
+                    disabled={submitting}
                     onClick={() => {
                       setAutoSplitContrib(true);
                       rebalanceContribs();
                     }}
-                    className="rounded-md border border-slate-200 bg-slate-50 px-2 py-1 text-xs font-medium text-slate-700 hover:bg-slate-100"
+                    className="rounded-md border border-slate-200 bg-slate-50 px-2 py-1 text-xs font-medium text-slate-700 hover:bg-slate-100 disabled:opacity-60"
                   >
                     Rebalance equally
                   </button>
@@ -628,13 +740,14 @@ export default function AddExpenseForm({ groupId }) {
                           min="0"
                           step="0.01"
                           value={val}
+                          disabled={submitting}
                           onChange={(e) => {
                             const v = e.target.value;
                             setContribAmt((s) => ({ ...s, [id]: v }));
-                            setAutoSplitContrib(false); // user took manual control
+                            setAutoSplitContrib(false);
                           }}
                           placeholder="Amount"
-                          className="w-1/2 rounded-md border border-slate-200 bg-white px-2 py-1.5 text-sm"
+                          className="w-1/2 rounded-md border border-slate-200 bg-white px-2 py-1.5 text-sm disabled:opacity-60"
                         />
                       </div>
                     );
@@ -664,16 +777,45 @@ export default function AddExpenseForm({ groupId }) {
       <div className="flex items-center justify-end gap-2">
         <button
           type="button"
+          disabled={submitting}
           onClick={() => router.back()}
-          className="rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm font-medium text-slate-700 hover:bg-slate-50"
+          className="rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm font-medium text-slate-700 hover:bg-slate-50 disabled:opacity-60"
         >
           Cancel
         </button>
         <button
           type="submit"
-          className="rounded-lg bg-slate-900 px-3 py-2 text-sm font-semibold text-white hover:bg-slate-800"
+          disabled={submitting}
+          className="inline-flex items-center gap-2 rounded-lg bg-slate-900 px-3 py-2 text-sm font-semibold text-white hover:bg-slate-800 disabled:pointer-events-none disabled:opacity-60"
         >
-          Create expense
+          {submitting ? (
+            <>
+              <svg
+                className="h-4 w-4 animate-spin"
+                viewBox="0 0 24 24"
+                fill="none"
+              >
+                <circle
+                  className="opacity-25"
+                  cx="12"
+                  cy="12"
+                  r="10"
+                  stroke="currentColor"
+                  strokeWidth="4"
+                />
+                <path
+                  className="opacity-75"
+                  fill="currentColor"
+                  d="M4 12a8 8 0 018-8v4a4 4 0 00-4 4H4z"
+                />
+              </svg>
+              {mode === "edit" ? "Saving…" : "Creating…"}
+            </>
+          ) : mode === "edit" ? (
+            "Save changes"
+          ) : (
+            "Create expense"
+          )}
         </button>
       </div>
     </form>

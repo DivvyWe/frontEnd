@@ -1,84 +1,10 @@
-// components/groups/GroupMembers.jsx
+// src/components/groups/AddMemberModal.jsx
 "use client";
 
 import { useState } from "react";
-import { Plus, UserPlus, X, Loader2 } from "lucide-react";
+import { UserPlus, X, Loader2 } from "lucide-react";
 
-// --- helpers ---------------------------------------------------------------
-function initials(name = "") {
-  const parts = String(name).trim().split(/\s+/).slice(0, 2);
-  return parts.map((p) => p[0]?.toUpperCase() || "").join("");
-}
-
-// --- Member card (unchanged API) ------------------------------------------
-export default function GroupMemberCard({ name, avatar, isOwner }) {
-  return (
-    <div className="flex items-center gap-3 rounded-xl border border-slate-200 bg-white/70 px-3 py-2">
-      {/* Avatar */}
-      {avatar ? (
-        // eslint-disable-next-line @next/next/no-img-element
-        <img
-          src={avatar}
-          alt={name}
-          className="h-9 w-9 rounded-full object-cover ring-1 ring-black/5"
-        />
-      ) : (
-        <div className="flex h-9 w-9 items-center justify-center rounded-full bg-slate-100 text-xs font-semibold text-slate-700 ring-1 ring-black/5">
-          {initials(name)}
-        </div>
-      )}
-
-      {/* Name + role */}
-      <div className="min-w-0">
-        <div className="truncate text-sm font-medium text-slate-900">
-          {name}
-        </div>
-        {isOwner && (
-          <span className="mt-0.5 inline-flex items-center rounded-md bg-amber-50 px-1.5 py-0.5 text-[10px] font-semibold text-amber-800 ring-1 ring-amber-200">
-            Owner
-          </span>
-        )}
-      </div>
-    </div>
-  );
-}
-
-// --- “Add member” tile -----------------------------------------------------
-/**
- * Usage:
- *   <AddMemberTile groupId={groupId} onAdded={refetchMembers} />
- * - Calls POST /api/proxy/groups/:groupId/members with { identifier }
- * - onAdded() fires after success so parent can refresh.
- */
-export function AddMemberTile({ groupId, onAdded, canManage = true }) {
-  const [open, setOpen] = useState(false);
-
-  if (!canManage) return null;
-
-  return (
-    <>
-      <button
-        type="button"
-        onClick={() => setOpen(true)}
-        className="flex h-[48px] items-center justify-center gap-2 rounded-xl border border-dashed border-slate-300 bg-white/60 px-3 py-2 text-sm font-medium text-slate-700 hover:border-slate-400 hover:bg-slate-50"
-        aria-label="Add member"
-      >
-        <Plus className="h-4 w-4" />
-        Add member
-      </button>
-
-      <AddMemberModal
-        open={open}
-        onClose={() => setOpen(false)}
-        groupId={groupId}
-        onAdded={onAdded}
-      />
-    </>
-  );
-}
-
-// --- Modal -----------------------------------------------------------------
-function AddMemberModal({ open, onClose, groupId, onAdded }) {
+export default function AddMemberModal({ open, onClose, groupId, onAdded }) {
   const [identifier, setIdentifier] = useState("");
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
@@ -90,9 +16,6 @@ function AddMemberModal({ open, onClose, groupId, onAdded }) {
     setBusy(true);
     setError("");
     try {
-      // NOTE: backend should accept { identifier } (email or username).
-      // If your API expects a different key (e.g., { email } or { userId }),
-      // change the body below accordingly.
       const res = await fetch(`/api/proxy/groups/${groupId}/members`, {
         method: "POST",
         headers: {
@@ -101,19 +24,11 @@ function AddMemberModal({ open, onClose, groupId, onAdded }) {
         },
         body: JSON.stringify({ identifier: identifier.trim() }),
       });
-
       if (!res.ok) {
         const data = await res.json().catch(() => ({}));
         throw new Error(data?.message || `Failed with ${res.status}`);
       }
-
-      // Try to surface the new member if returned; otherwise just notify parent.
-      let payload = null;
-      try {
-        payload = await res.json();
-      } catch {}
-      onAdded?.(payload?.member || payload?.members || null);
-
+      onAdded?.();
       setIdentifier("");
       onClose?.();
     } catch (e) {
@@ -142,12 +57,8 @@ function AddMemberModal({ open, onClose, groupId, onAdded }) {
         if (e.target === e.currentTarget) onClose?.();
       }}
     >
-      {/* overlay */}
       <div className="absolute inset-0 bg-black/40 backdrop-blur-[1px]" />
-
-      {/* panel */}
       <div className="relative z-[101] w-full max-w-sm rounded-2xl bg-white p-4 shadow-xl ring-1 ring-black/10">
-        {/* header */}
         <div className="mb-2 flex items-center justify-between">
           <div className="inline-flex items-center gap-2">
             <div className="grid h-8 w-8 place-items-center rounded-full bg-slate-100 text-slate-700">
@@ -170,15 +81,13 @@ function AddMemberModal({ open, onClose, groupId, onAdded }) {
           </button>
         </div>
 
-        {/* body */}
         <p className="mb-3 text-sm text-slate-600">
-          Enter an <span className="font-medium">email</span> or{" "}
-          <span className="font-medium">username</span> to add them to this
-          group.
+          Enter an <span className="font-medium">email</span> to add them to
+          this group.
         </p>
 
         <label className="mb-1 block text-xs font-medium uppercase tracking-wide text-slate-500">
-          Email or username
+          Email
         </label>
         <input
           type="text"
@@ -186,16 +95,16 @@ function AddMemberModal({ open, onClose, groupId, onAdded }) {
           autoFocus
           value={identifier}
           onChange={(e) => setIdentifier(e.target.value)}
-          placeholder="e.g. alex@example.com or alex"
+          placeholder="e.g. alex@example.com"
           className="w-full rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm shadow-sm focus:border-slate-400 focus:outline-none"
         />
+
         {error ? (
           <div className="mt-2 rounded-md bg-rose-50 px-3 py-1.5 text-xs font-medium text-rose-700">
             {error}
           </div>
         ) : null}
 
-        {/* footer */}
         <div className="mt-4 flex justify-end gap-2">
           <button
             type="button"
