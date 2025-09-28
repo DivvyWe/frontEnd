@@ -2,8 +2,10 @@
 "use client";
 
 import Link from "next/link";
+import Image from "next/image";
 import { usePathname } from "next/navigation";
-import { FiUsers, FiList, FiSettings } from "react-icons/fi";
+import { useState, useRef, useEffect } from "react";
+import { FiHome, FiUsers, FiUser } from "react-icons/fi";
 import LogoutButton from "@/components/LogoutButton";
 import NotificationBell from "@/components/NotificationBell";
 
@@ -22,9 +24,9 @@ function TopTab({ href, icon: Icon, label }) {
         aria-hidden
       />
       <span
-        className={`${
+        className={
           active ? "text-slate-700" : "text-slate-600 hover:text-slate-700"
-        }`}
+        }
       >
         {label}
       </span>
@@ -61,42 +63,87 @@ function MobileTab({ href, icon: Icon, label }) {
   );
 }
 
-export default function AppNav({ me }) {
+function useClickOutside(onClose) {
+  const ref = useRef(null);
+  useEffect(() => {
+    function onDoc(e) {
+      if (ref.current && !ref.current.contains(e.target)) onClose?.();
+    }
+    document.addEventListener("mousedown", onDoc);
+    return () => document.removeEventListener("mousedown", onDoc);
+  }, [onClose]);
+  return ref;
+}
+
+/** Desktop avatar: clicking shows a tiny menu with just Logout */
+function DesktopAvatarLogout({ me }) {
+  const [open, setOpen] = useState(false);
+  const ref = useClickOutside(() => setOpen(false));
   const initial = (me?.username?.[0] || "U").toUpperCase();
 
+  return (
+    <div className="relative" ref={ref}>
+      <button
+        onClick={() => setOpen((v) => !v)}
+        className="grid h-8 w-8 place-items-center rounded-full bg-slate-200 text-slate-700 text-sm font-semibold"
+        title={me?.username || "You"}
+        aria-haspopup="menu"
+        aria-expanded={open}
+      >
+        {initial}
+      </button>
+      {open && (
+        <div
+          role="menu"
+          className="absolute right-0 mt-2 w-40 rounded-xl border border-slate-200 bg-white p-1 shadow-lg"
+        >
+          <div className="px-2 py-1">
+            <LogoutButton />
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
+
+export default function AppNav({ me }) {
   return (
     <>
       {/* Top bar */}
       <div className="sticky top-0 z-20 bg-white/80 backdrop-blur shadow-sm">
         <div className="mx-auto flex max-w-6xl items-center justify-between px-4 py-3">
+          {/* Left side: logo on ALL views */}
           <div className="flex items-center gap-3">
-            <div className="grid h-9 w-9 place-items-center rounded-lg bg-[#84CC16] text-white font-bold">
-              D
-            </div>
-            <span className="text-base font-semibold text-slate-700">
-              DivIt
-            </span>
+            <Link
+              href="/dashboard"
+              aria-label="Go to Dashboard"
+              className="block"
+            >
+              <Image
+                src="/logo.png"
+                alt="DivSez logo"
+                width={36}
+                height={36}
+                priority
+                // Responsive sizing: h-9 on md+, intrinsic width via w-auto keeps aspect
+                className="h-9 w-auto rounded-lg"
+                sizes="(min-width: 768px) 36px, 100vw"
+              />
+            </Link>
           </div>
 
           {/* Desktop tabs */}
           <nav className="hidden md:flex items-center gap-2">
+            <TopTab href="/dashboard" icon={FiHome} label="Dashboard" />
             <TopTab href="/groups" icon={FiUsers} label="Groups" />
-            {/* If you also want Expenses on desktop, keep this line: */}
-            <TopTab href="/expenses" icon={FiList} label="Expenses" />
-            <TopTab href="/settings" icon={FiSettings} label="Settings" />
+            <TopTab href="/profile" icon={FiUser} label="Profile" />
           </nav>
 
+          {/* Right side */}
           <div className="flex items-center gap-3">
-            {/* Mount the bell ONCE (desktop & mobile) — in the top bar only */}
             <NotificationBell me={me} />
-            <div
-              className="grid h-8 w-8 place-items-center rounded-full bg-slate-200 text-slate-700 text-sm font-semibold"
-              title={me?.username || "You"}
-            >
-              {initial}
-            </div>
             <div className="hidden md:block">
-              <LogoutButton />
+              <DesktopAvatarLogout me={me} />
             </div>
           </div>
         </div>
@@ -108,10 +155,9 @@ export default function AppNav({ me }) {
         style={{ paddingBottom: "env(safe-area-inset-bottom)" }}
       >
         <div className="mx-auto flex max-w-6xl items-center justify-between px-4">
+          <MobileTab href="/dashboard" icon={FiHome} label="Dashboard" />
           <MobileTab href="/groups" icon={FiUsers} label="Groups" />
-          {/* If you want Expenses on mobile, keep this line: */}
-          <MobileTab href="/expenses" icon={FiList} label="Expenses" />
-          <MobileTab href="/settings" icon={FiSettings} label="Settings" />
+          <MobileTab href="/profile" icon={FiUser} label="Profile" />
         </div>
       </div>
     </>

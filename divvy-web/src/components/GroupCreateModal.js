@@ -10,19 +10,13 @@ export default function GroupCreateModal({ open, onClose, onCreated }) {
   const router = useRouter();
   const nameRef = useRef(null);
 
-  // Basics
   const [name, setName] = useState("");
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState("");
-
-  // Selected existing users (IDs only)
   const [selectedIds, setSelectedIds] = useState([]); // string[]
 
-  // Endpoints
   const CREATE_ENDPOINT = "/api/proxy/user/groups"; // POST /user/groups
-  const INVITE_ENDPOINT = "/api/proxy/user/groups/invite"; // POST /user/groups/invite
 
-  // Reset on open/close
   useEffect(() => {
     if (open) {
       setTimeout(() => nameRef.current?.focus(), 50);
@@ -36,7 +30,6 @@ export default function GroupCreateModal({ open, onClose, onCreated }) {
     }
   }, [open]);
 
-  // Close on ESC
   useEffect(() => {
     if (!open) return;
     function onKeyDown(e) {
@@ -58,7 +51,13 @@ export default function GroupCreateModal({ open, onClose, onCreated }) {
     setError("");
 
     try {
-      // 1) Create the group
+      // 1) Create the group (send selected IDs inline)
+      const payload = {
+        name: name.trim(),
+        memberIds: selectedIds, // ⬅️ send here
+      };
+      console.log("➡️ POST", CREATE_ENDPOINT, payload);
+
       const res = await fetch(CREATE_ENDPOINT, {
         method: "POST",
         headers: {
@@ -66,44 +65,28 @@ export default function GroupCreateModal({ open, onClose, onCreated }) {
           Accept: "application/json",
         },
         credentials: "include",
-        body: JSON.stringify({ name: name.trim() }),
+        body: JSON.stringify(payload),
       });
 
       const data = await res.json().catch(() => ({}));
-      const group = data?.group || data;
-      const groupId = group?._id;
+      console.log("⬅️ createGroup response:", res.status, data);
 
       if (res.status === 401) {
         router.replace("/auth/signin");
         return;
       }
+      const group = data?.group || data;
+      const groupId = group?._id;
       if (!res.ok || !groupId) {
         setError(data?.message || "Failed to create group.");
         return;
       }
 
-      // 2) Invite selected users (IDs only; no email invites)
-      if (selectedIds.length > 0) {
-        try {
-          await fetch(INVITE_ENDPOINT, {
-            method: "POST",
-            headers: {
-              "Content-Type": "application/json",
-              Accept: "application/json",
-            },
-            credentials: "include",
-            body: JSON.stringify({
-              groupId,
-              userIdsToInvite: selectedIds,
-            }),
-          }).then((r) => r.json().catch(() => ({})));
-        } catch {}
-      }
-
       onCreated?.(group);
       onClose?.();
       router.push(`/groups/${groupId}`);
-    } catch {
+    } catch (err) {
+      console.error(err);
       setError("Something went wrong. Please try again.");
     } finally {
       setSubmitting(false);
@@ -121,7 +104,7 @@ export default function GroupCreateModal({ open, onClose, onCreated }) {
         className="absolute inset-0 bg-black/40 backdrop-blur-sm transition-opacity"
       />
 
-      {/* Centered panel wrapper (always centered) */}
+      {/* Centered panel */}
       <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
         <div
           className="w-full max-w-lg rounded-2xl bg-white p-5 shadow-xl ring-1 ring-black/10 md:p-6"
@@ -134,7 +117,7 @@ export default function GroupCreateModal({ open, onClose, onCreated }) {
               <div className="grid h-8 w-8 place-items-center rounded-lg bg-[#84CC16]/15 text-[#1f2937]">
                 <FiPlus className="h-4 w-4 text-[#84CC16]" />
               </div>
-              <h2 className="text-base font-semibold text-slate-800">
+              <h2 className="text/base font-semibold text-slate-800">
                 New group
               </h2>
             </div>
@@ -157,7 +140,6 @@ export default function GroupCreateModal({ open, onClose, onCreated }) {
 
           {/* Form */}
           <form onSubmit={handleSubmit} className="space-y-5">
-            {/* Group name */}
             <div>
               <label className="mb-1 block text-sm font-medium text-slate-700">
                 Group name
@@ -174,10 +156,9 @@ export default function GroupCreateModal({ open, onClose, onCreated }) {
               />
             </div>
 
-            {/* People Picker (IDs only; no email invites) */}
+            {/* IDs-only picker */}
             <PeoplePicker onChangeSelected={(ids) => setSelectedIds(ids)} />
 
-            {/* Actions */}
             <div className="flex items-center justify-end gap-2">
               <button
                 type="button"

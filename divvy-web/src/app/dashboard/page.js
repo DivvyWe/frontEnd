@@ -5,6 +5,10 @@ import Link from "next/link";
 import NewGroupButton from "@/components/NewGroupButton";
 import { FiUsers, FiInbox, FiList } from "react-icons/fi";
 
+// ⬇️ Client components (both files must start with "use client")
+import PushSoftPrompt from "@/components/push/PushSoftPrompt";
+import PushTest from "@/components/pushtest";
+
 export const dynamic = "force-dynamic";
 
 export default async function DashboardPage() {
@@ -39,6 +43,9 @@ export default async function DashboardPage() {
 
   return (
     <div className="space-y-6">
+      {/* 🔔 Soft prompt (shows only when Notification.permission === 'default') */}
+      <PushSoftPrompt />
+
       {/* Welcome + primary actions */}
       <section className="rounded-2xl bg-white p-6 shadow-sm ring-1 ring-black/5">
         <div className="flex flex-col gap-4 md:flex-row md:items-center md:justify-between">
@@ -49,7 +56,6 @@ export default async function DashboardPage() {
             <p className="text-slate-600">Let’s split smarter today 👋</p>
           </div>
           <div className="flex gap-3">
-            {/* Modal-based create (mobile-friendly) */}
             <NewGroupButton />
             <Link
               href="/expenses/new"
@@ -62,7 +68,7 @@ export default async function DashboardPage() {
         </div>
       </section>
 
-      {/* Summary tiles (kept concise) */}
+      {/* Summary tiles */}
       <section className="grid gap-4 sm:grid-cols-2">
         <div className="rounded-xl bg-white p-4 shadow-sm ring-1 ring-black/5">
           <div className="flex items-center justify-between">
@@ -162,7 +168,7 @@ export default async function DashboardPage() {
           )}
         </div>
 
-        {/* Recent activity (light placeholder) */}
+        {/* Right column */}
         <aside className="rounded-2xl bg-white p-6 shadow-sm ring-1 ring-black/5">
           <h2 className="mb-4 text-lg font-semibold text-slate-900">
             Recent activity
@@ -177,6 +183,11 @@ export default async function DashboardPage() {
             <FiList className="h-4 w-4" />
             Add your first expense
           </Link>
+
+          {/* 🔔 Enable + Send Test widget */}
+          <div className="mt-6">
+            <PushTest />
+          </div>
         </aside>
       </section>
     </div>

@@ -6,7 +6,6 @@ import NewGroupButton from "@/components/NewGroupButton";
 
 export const dynamic = "force-dynamic";
 
-// money like "40" or "40.50" (no $ symbol for compact rows)
 const fmtMoneyPlain = (n) => {
   const x = Number(n) || 0;
   return Number.isInteger(x) ? String(x) : x.toFixed(2);
@@ -40,7 +39,6 @@ function SettledBadge() {
 }
 
 function DebtRow({ left, right, variant }) {
-  // variant: 'owe' (you pay) -> red, 'owed' (they pay you) -> green
   const cls =
     variant === "owe" ? "bg-red-50 text-red-700" : "bg-green-50 text-green-700";
   return (
@@ -64,7 +62,6 @@ function GroupCard({ g }) {
         href={`/groups/${g._id}`}
         className="block rounded-xl p-4 transition hover:bg-slate-50 focus:outline-none"
       >
-        {/* header */}
         <div className="mb-2 flex items-center justify-between gap-3">
           <h3 className="text-base font-semibold text-slate-900 line-clamp-1">
             {g.name || "Untitled group"}
@@ -72,7 +69,6 @@ function GroupCard({ g }) {
           <NetBadge net={g?.totals?.net || 0} />
         </div>
 
-        {/* compact debts OR settled badge */}
         {hasAnyDebt ? (
           <div className="grid gap-1">
             {youOwe.map((row, i) => (
@@ -116,8 +112,8 @@ export default async function GroupsPage() {
     cache: "no-store",
   };
 
-  const urlUser = `${base}/api/proxy/user/groups`; // new API
-  const urlOld = `${base}/api/proxy/groups`; // legacy fallback
+  const urlUser = `${base}/api/proxy/user/groups`;
+  const urlOld = `${base}/api/proxy/groups`;
 
   let res = await fetch(urlUser, common).catch(() => null);
   if (!res || res.status === 404)
@@ -130,6 +126,8 @@ export default async function GroupsPage() {
         <div className="rounded-xl border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-800">
           Could not reach the server.
         </div>
+        {/* Floating button still available */}
+        <NewGroupButton floating />
       </div>
     );
   }
@@ -141,16 +139,13 @@ export default async function GroupsPage() {
     raw = await res.json();
   } catch {}
 
-  // New shape
   const created = Array.isArray(raw?.createdGroups) ? raw.createdGroups : [];
   const joined = Array.isArray(raw?.joinedGroups) ? raw.joinedGroups : [];
 
-  // Legacy fallback
   let legacy = [];
   if (Array.isArray(raw?.groups)) legacy = raw.groups;
   else if (Array.isArray(raw?.data?.groups)) legacy = raw.data.groups;
 
-  // Merge + dedupe by _id; prefer objects that already include summaries
   const map = new Map();
   for (const g of [...created, ...joined, ...legacy]) {
     if (!g || !g._id) continue;
@@ -166,19 +161,15 @@ export default async function GroupsPage() {
   const hasGroups = groups.length > 0;
 
   return (
-    <div className="space-y-6">
-      {/* header + action */}
-      <div className="flex flex-col gap-3 md:flex-row md:items-center md:justify-between">
-        <div>
-          <h1 className="text-2xl font-semibold text-slate-800">Your groups</h1>
-          <p className="text-slate-600">
-            Create a group to start splitting expenses.
-          </p>
-        </div>
-        <NewGroupButton className="inline-flex items-center justify-center rounded-lg bg-[#84CC16] px-4 py-2.5 font-semibold text-white hover:bg-[#76b514] active:scale-[0.99]" />
+    <div className="space-y-6 pb-24 md:pb-10">
+      {/* header (no inline add button now) */}
+      <div className="flex flex-col gap-1">
+        <h1 className="text-2xl font-semibold text-slate-800">Your groups</h1>
+        <p className="text-slate-600">
+          Create a group to start splitting expenses.
+        </p>
       </div>
 
-      {/* groups grid */}
       <div className="rounded-2xl bg-white p-6 shadow-sm ring-1 ring-black/5">
         {hasGroups ? (
           <ul className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
@@ -189,10 +180,12 @@ export default async function GroupsPage() {
         ) : (
           <div className="grid place-items-center rounded-xl border border-dashed border-slate-200 p-10 text-center">
             <p className="text-slate-600">No groups yet.</p>
-            <NewGroupButton className="mt-4 inline-flex items-center gap-2 rounded-lg bg-[#84CC16] px-4 py-2.5 font-semibold text-white hover:bg-[#76b514]" />
           </div>
         )}
       </div>
+
+      {/* Floating FAB (bottom-right on all viewports) */}
+      <NewGroupButton floating />
     </div>
   );
 }
