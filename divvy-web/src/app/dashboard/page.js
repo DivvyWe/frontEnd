@@ -5,9 +5,10 @@ import Link from "next/link";
 import NewGroupButton from "@/components/NewGroupButton";
 import { FiUsers, FiInbox, FiList } from "react-icons/fi";
 
-// ⬇️ Client components (both files must start with "use client")
-import PushSoftPrompt from "@/components/push/PushSoftPrompt";
-import PushTest from "@/components/pushtest";
+// ⬇️ Client components
+import PushAutoRequest from "@/components/push/PushAutoRequest";
+import PushSoftPrompt from "@/components/push/PushSoftPrompt"; // optional, keep if you want
+import PushTest from "@/components/pushtest"; // your existing tester
 
 export const dynamic = "force-dynamic";
 
@@ -39,11 +40,18 @@ export default async function DashboardPage() {
   const invites = invitesRes && invitesRes.ok ? await invitesRes.json() : [];
 
   const groupsCount = Array.isArray(groups) ? groups.length : 0;
-  const invitesCount = Array.isArray(invites) ? invites.length : 0;
+  const invitesCount = Array.isArray(invites?.invites)
+    ? invites.invites.length
+    : Array.isArray(invites)
+    ? invites.length
+    : 0;
 
   return (
     <div className="space-y-6">
-      {/* 🔔 Soft prompt (shows only when Notification.permission === 'default') */}
+      {/* 🔔 Auto attempt on load, with graceful fallback */}
+      <PushAutoRequest />
+
+      {/* (Optional) your existing soft prompt */}
       <PushSoftPrompt />
 
       {/* Welcome + primary actions */}
@@ -109,7 +117,6 @@ export default async function DashboardPage() {
 
       {/* Main grid */}
       <section className="grid gap-6 lg:grid-cols-3">
-        {/* Groups */}
         <div className="lg:col-span-2 rounded-2xl bg-white p-6 shadow-sm ring-1 ring-black/5">
           <div className="mb-4 flex items-center justify-between">
             <h2 className="text-lg font-semibold text-slate-900">
@@ -168,7 +175,6 @@ export default async function DashboardPage() {
           )}
         </div>
 
-        {/* Right column */}
         <aside className="rounded-2xl bg-white p-6 shadow-sm ring-1 ring-black/5">
           <h2 className="mb-4 text-lg font-semibold text-slate-900">
             Recent activity
@@ -184,7 +190,6 @@ export default async function DashboardPage() {
             Add your first expense
           </Link>
 
-          {/* 🔔 Enable + Send Test widget */}
           <div className="mt-6">
             <PushTest />
           </div>

@@ -5,7 +5,7 @@ import Link from "next/link";
 import Image from "next/image";
 import { usePathname } from "next/navigation";
 import { useState, useRef, useEffect } from "react";
-import { FiHome, FiUsers, FiUser } from "react-icons/fi";
+import { FiUsers, FiUser, FiUserPlus } from "react-icons/fi";
 import LogoutButton from "@/components/LogoutButton";
 import NotificationBell from "@/components/NotificationBell";
 
@@ -112,20 +112,15 @@ export default function AppNav({ me }) {
       {/* Top bar */}
       <div className="sticky top-0 z-20 bg-white/80 backdrop-blur shadow-sm">
         <div className="mx-auto flex max-w-6xl items-center justify-between px-4 py-3">
-          {/* Left side: logo on ALL views */}
+          {/* Left: logo */}
           <div className="flex items-center gap-3">
-            <Link
-              href="/dashboard"
-              aria-label="Go to Dashboard"
-              className="block"
-            >
+            <Link href="/groups" aria-label="Go to Groups" className="block">
               <Image
                 src="/logo.png"
                 alt="DivSez logo"
                 width={36}
                 height={36}
                 priority
-                // Responsive sizing: h-9 on md+, intrinsic width via w-auto keeps aspect
                 className="h-9 w-auto rounded-lg"
                 sizes="(min-width: 768px) 36px, 100vw"
               />
@@ -134,8 +129,8 @@ export default function AppNav({ me }) {
 
           {/* Desktop tabs */}
           <nav className="hidden md:flex items-center gap-2">
-            <TopTab href="/dashboard" icon={FiHome} label="Dashboard" />
             <TopTab href="/groups" icon={FiUsers} label="Groups" />
+            <TopTab href="/contacts" icon={FiUserPlus} label="Contacts" />
             <TopTab href="/profile" icon={FiUser} label="Profile" />
           </nav>
 
@@ -155,8 +150,8 @@ export default function AppNav({ me }) {
         style={{ paddingBottom: "env(safe-area-inset-bottom)" }}
       >
         <div className="mx-auto flex max-w-6xl items-center justify-between px-4">
-          <MobileTab href="/dashboard" icon={FiHome} label="Dashboard" />
           <MobileTab href="/groups" icon={FiUsers} label="Groups" />
+          <MobileTab href="/contacts" icon={FiUserPlus} label="Contacts" />
           <MobileTab href="/profile" icon={FiUser} label="Profile" />
         </div>
       </div>
