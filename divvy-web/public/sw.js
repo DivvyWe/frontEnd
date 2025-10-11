@@ -1,32 +1,37 @@
+// public/sw.js
 /* global self, clients */
+
+// --- ESM marker (lets you register with { type: 'module' }) ---
+export {};
 
 /**
  * Divsez Service Worker
- * - Push notifications (keeps your existing behavior)
+ * - Push notifications
  * - Offline support (navigations + static assets)
  * - Update flow (skipWaiting/clients.claim + message bridge)
+ *
+ * NOTE: We intentionally DO NOT cache /_next/** to avoid stale-bundle issues.
  */
 
 const APP_NAME = "Divsez";
-const SW_VERSION = "v6";
+const SW_VERSION = "v7";
 const CACHE_NAME = `divsez-cache-${SW_VERSION}`;
 
 // Precache these (adjust if needed)
 const PRECACHE_URLS = [
   "/", // app shell
-  "/offline", // fallback page (optional, but recommended)
+  "/offline", // optional fallback page
   "/manifest.webmanifest",
   "/favicon.ico",
   "/icons/icon-192.png",
   "/icons/icon-192-maskable.png",
   "/icons/icon-512.png",
   "/icons/icon-512-maskable.png",
-  // notification/badge assets you already use:
   "/icons/notification-192.png",
   "/icons/badge-72.png",
 ];
 
-// ---------- Helpers ----------
+/* ------------------------------ Helpers ------------------------------ */
 const isHTMLRequest = (req) =>
   req.mode === "navigate" ||
   (req.headers.get("accept") || "").includes("text/html");
@@ -40,14 +45,14 @@ async function safePrecache(urls) {
       try {
         const res = await fetch(url, { cache: "no-store" });
         if (res && res.ok) await cache.put(url, res.clone());
-      } catch (_) {
-        // ignore missing assets (e.g., offline page not present)
+      } catch {
+        // ignore (e.g., /offline might not exist)
       }
     })
   );
 }
 
-// ---------- Install / Activate / Messages ----------
+/* --------------------- Install / Activate / Messages --------------------- */
 self.addEventListener("install", (event) => {
   event.waitUntil(safePrecache(PRECACHE_URLS));
   self.skipWaiting(); // activate immediately
@@ -65,29 +70,46 @@ self.addEventListener("activate", (event) => {
   );
 });
 
-// Allow page to trigger skipWaiting (for in-app "Update available" toaster)
+// Allow page to trigger skipWaiting or clean caches
 self.addEventListener("message", (event) => {
   const data = event?.data;
-  if (data && data.type === "SKIP_WAITING") {
+  if (!data) return;
+
+  if (data.type === "SKIP_WAITING") {
     self.skipWaiting();
     return;
   }
-  // (reserved for future)
+  if (data.type === "CLEAN_CACHES") {
+    event.waitUntil(
+      (async () => {
+        const keys = await caches.keys();
+        await Promise.all(keys.map((k) => caches.delete(k)));
+      })()
+    );
+  }
 });
 
-// ---------- Fetch (offline strategies) ----------
+/* -------------------------- Fetch (strategies) -------------------------- */
 self.addEventListener("fetch", (event) => {
   const req = event.request;
   if (req.method !== "GET") return;
 
   const url = new URL(req.url);
 
-  // Avoid caching cross-origin or API calls by default
-  if (!sameOrigin(url) || url.pathname.startsWith("/api/")) {
-    return; // let the network handle it
+  // 0) Never touch Next.js bundles/HMR or dev internals
+  if (
+    url.pathname.startsWith("/_next/") ||
+    url.pathname.startsWith("/__next")
+  ) {
+    return; // always let the network/browser handle it
   }
 
-  // 1) HTML navigations → Network-first, fallback to cache, then /offline
+  // 1) Skip cross-origin and API calls
+  if (!sameOrigin(url) || url.pathname.startsWith("/api/")) {
+    return; // network only
+  }
+
+  // 2) HTML navigations → Network-first, then cache, then /offline
   if (isHTMLRequest(req)) {
     event.respondWith(
       (async () => {
@@ -114,36 +136,17 @@ self.addEventListener("fetch", (event) => {
     return;
   }
 
-  // 2) Next.js static chunks & images → Cache-first
-  if (
-    /^\/_next\/static\//.test(url.pathname) ||
-    /^\/_next\/image/.test(url.pathname)
-  ) {
-    event.respondWith(
-      (async () => {
-        const cache = await caches.open(CACHE_NAME);
-        const cached = await cache.match(req);
-        if (cached) return cached;
-        const network = await fetch(req);
-        if (network && network.ok)
-          cache.put(req, network.clone()).catch(() => {});
-        return network;
-      })()
-    );
-    return;
-  }
-
-  // 3) Fonts → Cache-first (usually very stable)
+  // 3) Fonts → Cache-first (usually stable)
   if (/\.(woff2?|ttf|otf)$/i.test(url.pathname)) {
     event.respondWith(
       (async () => {
         const cache = await caches.open(CACHE_NAME);
         const cached = await cache.match(req);
         if (cached) return cached;
-        const network = await fetch(req);
+        const network = await fetch(req).catch(() => null);
         if (network && network.ok)
           cache.put(req, network.clone()).catch(() => {});
-        return network;
+        return network || new Response(null, { status: 504 });
       })()
     );
     return;
@@ -189,14 +192,14 @@ self.addEventListener("fetch", (event) => {
   );
 });
 
-// ---------- Push Notifications (your existing logic, preserved) ----------
+/* ---------------- Push Notifications (preserved behavior) ---------------- */
 
 // Handle incoming pushes
 self.addEventListener("push", (event) => {
   let payload = {};
   try {
     payload = event?.data ? event.data.json() : {};
-  } catch (_e) {
+  } catch {
     payload = {
       title: APP_NAME,
       body: event.data && event.data.text ? event.data.text() : "",
@@ -249,7 +252,7 @@ self.addEventListener("notificationclick", (event) => {
             client.postMessage({ type: "push_click", url });
             return;
           }
-        } catch (_e) {}
+        } catch {}
       }
 
       // No matching tab: open new

@@ -3,7 +3,7 @@ import { Geist, Geist_Mono } from "next/font/google";
 import Script from "next/script";
 import "./globals.css";
 import PushClickHandler from "@/components/push/PushClickHandler";
-import InstallBanner from "@/components/pwa/InstallBanner"; // ⬅️ show the “Install app” popup
+import InstallBanner from "@/components/pwa/InstallBanner"; // phone-only “Install app” popup
 
 const geistSans = Geist({
   variable: "--font-geist-sans",
@@ -48,66 +48,84 @@ export default function RootLayout({ children }) {
       >
         <PushClickHandler />
 
-        {/* SW registration + update hooks */}
+        {/* SW registration + update hooks (production only, ES module worker) */}
         <Script id="sw-register" strategy="afterInteractive">
           {`
             (function(){
-              if (!('serviceWorker' in navigator)) return;
+              // 🔧 Build-time injected env value so it works in the browser:
+              var NODE_ENV = "${process.env.NODE_ENV}";
+              if (NODE_ENV !== 'production') return;
+              if (typeof window === 'undefined' || !('serviceWorker' in navigator)) return;
 
-              navigator.serviceWorker.register('/sw.js', { scope: '/' })
+              navigator.serviceWorker.register('/sw.js', { type: 'module', scope: '/' })
                 .then(function(reg){
-                  // keep a reference (optional)
                   window.__swReg = reg;
 
-                  // if there's already a waiting worker, surface it
+                  // If a new SW is already waiting (fresh deploy), surface an update event.
                   if (reg.waiting) {
                     window.dispatchEvent(new CustomEvent('sw:update-available', { detail: { reg } }));
                   }
 
-                  // listen for new installs
+                  // Track installing SW and surface events when installed
                   reg.addEventListener('updatefound', function () {
                     var sw = reg.installing;
                     if (!sw) return;
                     sw.addEventListener('statechange', function () {
                       if (sw.state === 'installed') {
-                        // controller is present -> update available; otherwise it's first install
                         if (navigator.serviceWorker.controller) {
+                          // Updated SW installed, but waiting to take control
                           window.dispatchEvent(new CustomEvent('sw:update-available', { detail: { reg } }));
                         } else {
+                          // First install: ready for offline
                           window.dispatchEvent(new CustomEvent('sw:ready', { detail: { reg } }));
                         }
                       }
                     });
                   });
 
-                  // when the new SW takes control
+                  // When the controller changes, page is now controlled by the new SW
                   navigator.serviceWorker.addEventListener('controllerchange', function(){
                     window.dispatchEvent(new CustomEvent('sw:updated'));
                   });
 
-                  // allow UI to request skipWaiting programmatically
+                  // Allow UI to ask the waiting SW to activate immediately
                   window.addEventListener('sw:skip-waiting', function(){
                     if (reg.waiting) {
                       reg.waiting.postMessage({ type: 'SKIP_WAITING' });
                     }
                   });
                 })
-                .catch(function (err) {
-                  console.error('SW registration failed:', err);
-                });
+                .catch(function (err) { console.error('SW registration failed:', err); });
             })();
           `}
         </Script>
 
-        {/* PWA install hooks (Android prompt + iOS tip) */}
+        {/* PWA install hooks — gated to PHONES ONLY */}
         <Script id="pwa-install-hooks" strategy="afterInteractive">
           {`
             (function () {
+              // strict phone detection (no desktop, no most tablets)
+              function isPhoneDevice() {
+                var ua = (navigator.userAgent || "").toLowerCase();
+                var uaDataMobile = navigator.userAgentData && navigator.userAgentData.mobile === true;
+                var isPhoneUA = /(android.*mobile|iphone|ipod|windows phone|blackberry|iemobile)/i.test(ua);
+                var isIPadLike = (/ipad|macintosh/i.test(navigator.userAgent) && 'ontouchend' in window);
+                var coarse = window.matchMedia && window.matchMedia('(pointer: coarse)').matches;
+                var maxSide = Math.min(screen.width || 0, screen.height || 0);
+                var phoneSized = maxSide > 0 && maxSide <= 600; // <=600px → phone-ish
+                return (uaDataMobile || isPhoneUA) && (coarse || phoneSized) && !isIPadLike;
+              }
+
+              if (!isPhoneDevice()) {
+                // Do not wire install events on desktop/tablets
+                return;
+              }
+
               window.__pwa = window.__pwa || {
                 deferredPrompt: null,
                 canInstall: false,
                 installed: false,
-                isIOS: /iphone|ipad|ipod/i.test(navigator.userAgent),
+                isIOS: /iphone|ipod/i.test(navigator.userAgent), // phone only
                 isInStandalone: window.matchMedia('(display-mode: standalone)').matches
                   || (window.navigator.standalone === true)
               };
@@ -137,7 +155,7 @@ export default function RootLayout({ children }) {
           `}
         </Script>
 
-        {/* ⚡ Install banner (Android prompt + iOS instructions) */}
+        {/* Phone-only install banner */}
         <InstallBanner />
 
         {children}
