@@ -2,7 +2,7 @@
 import { headers, cookies } from "next/headers";
 import { redirect } from "next/navigation";
 import Link from "next/link";
-import { Settings } from "lucide-react";
+import { Settings, Plus } from "lucide-react";
 
 import GroupHeader from "@/components/groups/GroupHeader";
 import GroupSummary from "@/components/groups/GroupSummary";
@@ -14,7 +14,7 @@ import GroupActivity from "@/components/activity/GroupActivity";
 export const dynamic = "force-dynamic";
 
 export default async function GroupPage({ params, searchParams }) {
-  // ✅ Await params/searchParams access (Next warning)
+  // ✅ must await both per Next 15
   const { groupId } = await params;
   const sp = await searchParams;
   const sort = sp?.sort || "new";
@@ -26,7 +26,7 @@ export default async function GroupPage({ params, searchParams }) {
   const host = h.get("x-forwarded-host") ?? h.get("host");
   const base = process.env.NEXT_PUBLIC_SITE_URL || `${proto}://${host}`;
 
-  // Locale & currency for long-term formatting
+  // Locale & currency
   const acceptLang = h.get("accept-language") || "en-US";
   const locale = acceptLang.split(",")[0]?.trim() || "en-US";
   const currency = process.env.NEXT_PUBLIC_CURRENCY || "USD";
@@ -90,32 +90,26 @@ export default async function GroupPage({ params, searchParams }) {
     );
   }
 
-  // Parse
-  const group = (() => {
-    try {
-      const g = groupRes && groupRes.ok ? groupRes.json() : null;
-      return g;
-    } catch {
-      return null;
-    }
-  })();
+  // ✅ parse JSON safely
+  const groupJson = groupRes.ok
+    ? await groupRes.json().catch(() => null)
+    : null;
+  const groupDoc = groupJson?.group || groupJson || null;
   const summary = (await summaryRes.json().catch(() => ({}))) || {};
   const expensesPayload = (await expensesRes.json().catch(() => ({}))) || {};
 
-  const gRaw = group && (await group.catch?.(() => null));
-  const groupDoc = gRaw?.group || gRaw || null;
-
+  // Members
   let members = [];
   if (membersRes?.ok) {
     try {
       const m = await membersRes.json();
-      members = m?.members || (Array.isArray(m) ? m : []); // API sometimes returns array directly
+      members = m?.members || (Array.isArray(m) ? m : []);
     } catch {}
   }
   if (!members?.length && Array.isArray(groupDoc?.members))
     members = groupDoc.members;
 
-  // ✅ Robust settlements extraction
+  // Settle data
   const settlements = Array.isArray(summary?.settlements)
     ? summary.settlements
     : Array.isArray(summary?.all)
@@ -128,23 +122,18 @@ export default async function GroupPage({ params, searchParams }) {
           : []),
       ];
 
+  // Expenses + pre-format
   const expenses = expensesPayload?.expenses || [];
-
-  const isMember =
-    Array.isArray(members) &&
-    members.some((m) => String(m?._id || m?.id) === String(myId));
-
-  // ✅ Pre-format on the server; pass ONLY plain data to the client
   const withFormatted = expenses.map((e) => {
     const amountNum = Number(e.amount) || 0;
     return {
       ...e,
-      amount: amountNum, // keep numeric for sorting math
+      amount: amountNum,
       formattedAmount: currencyFmt.format(amountNum),
     };
   });
 
-  // Sort using numeric amount & createdAt
+  // Sort
   const sorted = [...withFormatted].sort((a, b) => {
     if (sort === "old") return new Date(a.createdAt) - new Date(b.createdAt);
     if (sort === "amtAsc") return (a.amount || 0) - (b.amount || 0);
@@ -152,9 +141,14 @@ export default async function GroupPage({ params, searchParams }) {
     return new Date(b.createdAt) - new Date(a.createdAt); // "new"
   });
 
+  const isMember =
+    Array.isArray(members) &&
+    members.some((m) => String(m?._id || m?.id) === String(myId));
+
   return (
     <div className="space-y-6 overflow-x-hidden">
-      <div className="flex items-start justify-between gap-3">
+      {/* Header row with right-floating + button */}
+      <div className="flex items-center gap-3">
         <GroupHeader
           groupName={groupDoc?.name || "Group"}
           groupId={groupId}
@@ -164,7 +158,6 @@ export default async function GroupPage({ params, searchParams }) {
 
       <GroupSummary currentUserId={myId} settlements={settlements} />
 
-      {/* ✅ Pass only data (no function props) */}
       <GroupExpenses groupId={groupId} sort={sort} expenses={sorted} />
 
       <GroupSettingsMount
@@ -174,7 +167,8 @@ export default async function GroupPage({ params, searchParams }) {
         groupId={groupId}
       />
 
-      <GroupActivity groupId={params.groupId} />
+      {/* ✅ use the awaited variable, not params.groupId */}
+      <GroupActivity groupId={groupId} />
     </div>
   );
 }

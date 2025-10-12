@@ -189,7 +189,7 @@ export default async function ExpensePage(props) {
           </section>
 
           {/* Messages */}
-          <ExpenseMessages expenseId={expenseId} />
+          {/* <ExpenseMessages expenseId={expenseId} /> */}
 
           <div className="flex justify-between pt-2">
             <Link

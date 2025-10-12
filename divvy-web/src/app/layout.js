@@ -17,26 +17,30 @@ const geistMono = Geist_Mono({
 });
 
 export const metadata = {
-  title: { default: "Divvy – Split & Track", template: "%s · Divvy" },
+  title: { default: "Divsez", template: "%s · Divsez" },
   description: "Easily split and track group expenses with friends.",
   manifest: "/manifest.webmanifest",
   icons: {
-    icon: "/favicon.ico",
-    shortcut: "/favicon.ico",
-    apple: "/apple-touch-icon.png",
+    icon: "/icons/favicon-16.png", // ✅ new small favicon
+    shortcut: "/icons/favicon-16.png", // ✅ browser shortcut
+    apple: "/icons/apple-touch-icon.png", // ✅ iOS homescreen icon
   },
-  themeColor: [
-    { media: "(prefers-color-scheme: light)", color: "#84CC16" },
-    { media: "(prefers-color-scheme: dark)", color: "#84CC16" },
-  ],
   appleWebApp: {
     capable: true,
     statusBarStyle: "default",
-    title: "Divvy",
+    title: "Divsez",
   },
   other: {
     "format-detection": "telephone=no",
   },
+};
+
+// ✅ Next 15 requires themeColor in `viewport` (or `generateViewport`)
+export const viewport = {
+  themeColor: [
+    { media: "(prefers-color-scheme: light)", color: "#84CC16" },
+    { media: "(prefers-color-scheme: dark)", color: "#84CC16" },
+  ],
 };
 
 export default function RootLayout({ children }) {
@@ -52,7 +56,6 @@ export default function RootLayout({ children }) {
         <Script id="sw-register" strategy="afterInteractive">
           {`
             (function(){
-              // 🔧 Build-time injected env value so it works in the browser:
               var NODE_ENV = "${process.env.NODE_ENV}";
               if (NODE_ENV !== 'production') return;
               if (typeof window === 'undefined' || !('serviceWorker' in navigator)) return;
@@ -61,34 +64,28 @@ export default function RootLayout({ children }) {
                 .then(function(reg){
                   window.__swReg = reg;
 
-                  // If a new SW is already waiting (fresh deploy), surface an update event.
                   if (reg.waiting) {
                     window.dispatchEvent(new CustomEvent('sw:update-available', { detail: { reg } }));
                   }
 
-                  // Track installing SW and surface events when installed
                   reg.addEventListener('updatefound', function () {
                     var sw = reg.installing;
                     if (!sw) return;
                     sw.addEventListener('statechange', function () {
                       if (sw.state === 'installed') {
                         if (navigator.serviceWorker.controller) {
-                          // Updated SW installed, but waiting to take control
                           window.dispatchEvent(new CustomEvent('sw:update-available', { detail: { reg } }));
                         } else {
-                          // First install: ready for offline
                           window.dispatchEvent(new CustomEvent('sw:ready', { detail: { reg } }));
                         }
                       }
                     });
                   });
 
-                  // When the controller changes, page is now controlled by the new SW
                   navigator.serviceWorker.addEventListener('controllerchange', function(){
                     window.dispatchEvent(new CustomEvent('sw:updated'));
                   });
 
-                  // Allow UI to ask the waiting SW to activate immediately
                   window.addEventListener('sw:skip-waiting', function(){
                     if (reg.waiting) {
                       reg.waiting.postMessage({ type: 'SKIP_WAITING' });
@@ -104,7 +101,6 @@ export default function RootLayout({ children }) {
         <Script id="pwa-install-hooks" strategy="afterInteractive">
           {`
             (function () {
-              // strict phone detection (no desktop, no most tablets)
               function isPhoneDevice() {
                 var ua = (navigator.userAgent || "").toLowerCase();
                 var uaDataMobile = navigator.userAgentData && navigator.userAgentData.mobile === true;
@@ -112,20 +108,17 @@ export default function RootLayout({ children }) {
                 var isIPadLike = (/ipad|macintosh/i.test(navigator.userAgent) && 'ontouchend' in window);
                 var coarse = window.matchMedia && window.matchMedia('(pointer: coarse)').matches;
                 var maxSide = Math.min(screen.width || 0, screen.height || 0);
-                var phoneSized = maxSide > 0 && maxSide <= 600; // <=600px → phone-ish
+                var phoneSized = maxSide > 0 && maxSide <= 600;
                 return (uaDataMobile || isPhoneUA) && (coarse || phoneSized) && !isIPadLike;
               }
 
-              if (!isPhoneDevice()) {
-                // Do not wire install events on desktop/tablets
-                return;
-              }
+              if (!isPhoneDevice()) return;
 
               window.__pwa = window.__pwa || {
                 deferredPrompt: null,
                 canInstall: false,
                 installed: false,
-                isIOS: /iphone|ipod/i.test(navigator.userAgent), // phone only
+                isIOS: /iphone|ipod/i.test(navigator.userAgent),
                 isInStandalone: window.matchMedia('(display-mode: standalone)').matches
                   || (window.navigator.standalone === true)
               };

@@ -4,16 +4,17 @@ import { Settings } from "lucide-react";
 
 export default function GroupHeader({ groupName, groupId, isMember = false }) {
   return (
-    <header className="flex flex-col gap-3 md:flex-row md:items-center md:justify-between">
-      <div className="min-w-0">
+    <header className="flex w-full flex-wrap items-center justify-between gap-3">
+      {/* Left: Title */}
+      <div className="min-w-0 flex-1">
         <h1 className="truncate text-2xl font-semibold text-slate-900">
           {groupName}
         </h1>
         <p className="text-sm text-slate-500">Group details & activity</p>
       </div>
 
-      {/* Actions */}
-      <div className="flex items-center gap-2">
+      {/* Right: Actions */}
+      <div className="flex shrink-0 items-center gap-2">
         {/* Add expense */}
         <Link
           href={`/expenses/${groupId}/add`}
