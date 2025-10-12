@@ -11,7 +11,7 @@ const BASE = RAW_BASE.replace(/\/+$/, "");
 const joinUrl = (parts = []) =>
   (parts || [])
     .filter(Boolean)
-    .map((p) => String(p).replace(/^\/+|\/+$/g, ""))
+    .map((p) => String(p).replace(/^\/+|\/+$/g, "")) // trim slashes on each part
     .join("/");
 
 async function handle(req, ctx, method) {
@@ -22,25 +22,28 @@ async function handle(req, ctx, method) {
     );
   }
 
-  // ✅ params can be a Promise in route handlers — await it
+  // params can be a Promise in this handler
   const p = await ctx?.params;
-  // catch-all can be string or array; normalize to array
   const segs = Array.isArray(p?.path) ? p.path : [p?.path].filter(Boolean);
   const rel = joinUrl(segs);
 
   const { search } = new URL(req.url);
-  const url = `${BASE}/${rel}${search}`;
+  // ✅ Always forward to /api/... on the backend
+  const url = `${BASE}/api/${rel}${search}`;
 
   const token = (await cookies()).get("token")?.value;
 
   const headers = new Headers(req.headers);
   headers.set("accept", "application/json, */*");
-  headers.set("accept-encoding", "identity"); // avoid gzip issues in dev
+  headers.set("accept-encoding", "identity"); // avoid gzip decode issues in dev
+  // Don’t forward hop-by-hop / framework headers
   headers.delete("host");
   headers.delete("connection");
   headers.delete("content-length");
   headers.delete("transfer-encoding");
-  headers.delete("cookie"); // don’t leak Next cookies downstream
+  // Don’t leak Next.js cookies to backend
+  headers.delete("cookie");
+
   if (token) headers.set("authorization", `Bearer ${token}`);
 
   const init = {
@@ -50,13 +53,14 @@ async function handle(req, ctx, method) {
     redirect: "manual",
   };
 
-  // ----- body handling (fixes “duplex option is required”)
+  // ----- body handling -----
   if (!["GET", "HEAD"].includes(method)) {
     const ct = headers.get("content-type") || "";
 
-    if (ct.startsWith("multipart/form-data")) {
+    if (ct.includes("multipart/form-data")) {
+      // Keep the stream + duplex for form-data
       init.body = req.body;
-      // @ts-ignore (undici)
+      // @ts-ignore (undici extension)
       init.duplex = "half";
     } else if (
       ct.includes("application/json") ||
@@ -65,13 +69,14 @@ async function handle(req, ctx, method) {
     ) {
       const bodyText = await req.text();
       init.body = bodyText;
-    } else {
+    } else if (ct) {
+      // Any other content-type: pass-through the stream
       init.body = req.body;
-      // @ts-ignore (undici)
+      // @ts-ignore
       init.duplex = "half";
     }
   }
-  // ----- end body handling
+  // ----- end body handling -----
 
   if (DEBUG) console.log("[proxy] →", method, url, "hasToken:", !!token);
 
@@ -96,14 +101,35 @@ async function handle(req, ctx, method) {
   const resHeaders = new Headers(upstream.headers);
   resHeaders.delete("content-encoding");
   resHeaders.delete("content-length");
-  if (!resHeaders.get("content-type"))
+  if (!resHeaders.get("content-type")) {
+    // Default for JSON APIs; binaries (files/images) usually set their own
     resHeaders.set("content-type", "application/json; charset=utf-8");
+  }
   resHeaders.set("x-proxied-by", "next-proxy");
 
   return new NextResponse(upstream.body, {
     status: upstream.status,
     headers: resHeaders,
   });
+}
+
+// Preflight (rarely needed when same-origin, but safe to include)
+export async function OPTIONS() {
+  const res = NextResponse.json({}, { status: 200 });
+  res.headers.set(
+    "Access-Control-Allow-Origin",
+    process.env.NEXT_PUBLIC_APP_ORIGIN || "*"
+  );
+  res.headers.set(
+    "Access-Control-Allow-Methods",
+    "GET,POST,PUT,PATCH,DELETE,OPTIONS"
+  );
+  res.headers.set(
+    "Access-Control-Allow-Headers",
+    "Content-Type, Authorization"
+  );
+  res.headers.set("Access-Control-Allow-Credentials", "true");
+  return res;
 }
 
 export const GET = (req, ctx) => handle(req, ctx, "GET");
