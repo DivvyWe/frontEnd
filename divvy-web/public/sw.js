@@ -15,7 +15,7 @@ export {};
 
 const APP_NAME = "Divsez";
 const SW_VERSION = "v7";
-const CACHE_NAME = `divsez-cache-${SW_VERSION}`;
+const CACHE_NAME = `Divsez-cache-${SW_VERSION}`;
 
 // Precache these (adjust if needed)
 const PRECACHE_URLS = [

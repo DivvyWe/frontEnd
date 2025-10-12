@@ -1,11 +1,19 @@
 // components/groups/GroupSummary.jsx
-// Two-panel summary (You owe / Owed to you) with a net chip.
-// Accepts `settlements` as either:
-// - an array of edges, or
-// - a whole summary object with all/youOwe/owedToYou/othersOweEachOther.
-//
-// Each edge can use keys: { from, to, amount, fromName, toName } OR
-// fallbacks like { fromId/toId } and nested { fromUser, toUser }.
+"use client";
+
+/**
+ * GroupSummary — two-panel summary (You owe / Owed to you) with a net chip.
+ * - Scrolls when items exceed panel height.
+ * - Consistent with Divsez UI (rounded, clean, gradient, scroll shadow).
+ */
+
+const CURRENCY = process.env.NEXT_PUBLIC_CURRENCY || "USD";
+const currencyFmt = new Intl.NumberFormat(undefined, {
+  style: "currency",
+  currency: CURRENCY,
+  currencyDisplay: "narrowSymbol",
+  maximumFractionDigits: 2,
+});
 
 function initials(name = "") {
   const parts = String(name).trim().split(/\s+/).slice(0, 2);
@@ -14,67 +22,64 @@ function initials(name = "") {
 
 function normalizeEdgesInput(input) {
   let arr = [];
-
   if (Array.isArray(input)) {
     arr = input;
   } else if (input && typeof input === "object") {
-    const buckets = [
+    const keys = [
       "all",
       "youOwe",
       "owedToYou",
       "othersOweEachOther",
       "settlements",
     ];
-    for (const k of buckets) {
+    for (const k of keys) {
       if (Array.isArray(input[k])) arr.push(...input[k]);
     }
   }
 
   return arr
     .map((e) => {
-      const fromRaw =
-        e?.from ??
-        e?.fromId ??
-        e?.debtor ??
-        e?.payer ??
-        (typeof e?.from === "object" ? e.from._id ?? e.from.id : undefined);
-
-      const toRaw =
-        e?.to ??
-        e?.toId ??
-        e?.creditor ??
-        e?.receiver ??
-        (typeof e?.to === "object" ? e.to._id ?? e.to.id : undefined);
-
-      if (!fromRaw || !toRaw) return null;
+      const from =
+        e?.from?._id ||
+        e?.from?.id ||
+        e?.fromId ||
+        e?.debtor ||
+        e?.payer ||
+        e?.from;
+      const to =
+        e?.to?._id ||
+        e?.to?.id ||
+        e?.toId ||
+        e?.creditor ||
+        e?.receiver ||
+        e?.to;
+      if (!from || !to) return null;
 
       const amount = Number(e?.amount ?? e?.total ?? e?.value ?? 0);
 
       const fromName =
-        e?.fromName ??
-        e?.debtorName ??
-        e?.payerName ??
-        e?.fromUser?.username ??
-        e?.fromUser?.name ??
+        e?.fromName ||
+        e?.debtorName ||
+        e?.payerName ||
+        e?.fromUser?.username ||
+        e?.fromUser?.name ||
         (typeof e?.from === "object"
           ? e.from.username || e.from.name || e.from.email
-          : undefined) ??
-        String(fromRaw);
+          : String(from));
 
       const toName =
-        e?.toName ??
-        e?.creditorName ??
-        e?.receiverName ??
-        e?.toUser?.username ??
-        e?.toUser?.name ??
+        e?.toName ||
+        e?.creditorName ||
+        e?.receiverName ||
+        e?.toUser?.username ||
+        e?.toUser?.name ||
         (typeof e?.to === "object"
           ? e.to.username || e.to.name || e.to.email
-          : undefined) ??
-        String(toRaw);
+          : String(to));
 
       return {
-        from: String(fromRaw),
-        to: String(toRaw),
+        from: String(from),
+        to: String(to),
         amount,
         fromName,
         toName,
@@ -83,20 +88,10 @@ function normalizeEdgesInput(input) {
     .filter(Boolean);
 }
 
-export default function GroupSummary({
-  currentUserId,
-  settlements = [],
-  limit = 4,
-}) {
-  const fmt = (n) => `$${(Number(n) || 0).toFixed(2)}`;
+export default function GroupSummary({ currentUserId, settlements = [] }) {
   const idEq = (a, b) => String(a) === String(b);
-
-  // Robust normalization
   const edges = normalizeEdgesInput(settlements);
 
-  // Perspective:
-  // - current user is debtor → "You owe"
-  // - current user is creditor → "Owed to you"
   const youOwe = edges
     .filter((e) => idEq(e.from, currentUserId))
     .map((e) => ({
@@ -135,7 +130,7 @@ export default function GroupSummary({
           className={`inline-flex items-center gap-2 rounded-full px-3 py-1 text-sm font-medium ring-1 ${netChipClass}`}
           title="Owed to you − You owe"
         >
-          Net: {fmt(net)}
+          Net: {currencyFmt.format(net)}
         </span>
       </div>
 
@@ -143,19 +138,17 @@ export default function GroupSummary({
       <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
         <Panel
           title="You owe"
-          total={fmt(totals.owe)}
-          emptyText="Nothing to pay."
+          total={currencyFmt.format(totals.owe)}
+          emptyText="Nothing to pay right now."
           items={youOwe}
-          limit={limit}
           pillBg="bg-rose-50"
           pillText="text-rose-700"
         />
         <Panel
           title="Owed to you"
-          total={fmt(totals.owed)}
+          total={currencyFmt.format(totals.owed)}
           emptyText="No one owes you yet."
           items={owedToYou}
-          limit={limit}
           pillBg="bg-emerald-50"
           pillText="text-emerald-700"
         />
@@ -164,18 +157,16 @@ export default function GroupSummary({
   );
 }
 
+/* ---------- Panels ---------- */
 function Panel({
   title,
   total,
   emptyText,
   items,
-  limit = 4,
   pillBg = "bg-slate-50",
   pillText = "text-slate-700",
 }) {
-  const visible = items.slice(0, limit);
-  const remaining = items.length - visible.length;
-
+  const maxHeight = "max-h-64"; // about 10 items visible before scroll
   return (
     <div className="rounded-xl border border-slate-200/70 bg-white p-3">
       <div className="mb-2 flex items-baseline justify-between">
@@ -184,41 +175,24 @@ function Panel({
       </div>
 
       {items.length === 0 ? (
-        <p className="text-sm text-slate-500">{emptyText}</p>
+        <p className="py-4 text-sm text-slate-500">{emptyText}</p>
       ) : (
-        <>
+        <div className={`${maxHeight} overflow-y-auto pr-1 scroll-smooth`}>
           <ul className="space-y-2">
-            {visible.map((it) => (
+            {items.map((it) => (
               <Row key={it.id} item={it} pillBg={pillBg} pillText={pillText} />
             ))}
           </ul>
-
-          {remaining > 0 && (
-            <details className="mt-2">
-              <summary className="cursor-pointer text-sm text-slate-600 hover:text-slate-800">
-                Show {remaining} more
-              </summary>
-              <ul className="mt-2 space-y-2">
-                {items.slice(limit).map((it) => (
-                  <Row
-                    key={`more-${it.id}`}
-                    item={it}
-                    pillBg={pillBg}
-                    pillText={pillText}
-                  />
-                ))}
-              </ul>
-            </details>
-          )}
-        </>
+        </div>
       )}
     </div>
   );
 }
 
+/* ---------- Rows ---------- */
 function Row({ item, pillBg, pillText }) {
   return (
-    <li className="flex items-center justify-between gap-3">
+    <li className="flex items-center justify-between gap-3 rounded-lg px-1 py-0.5 hover:bg-slate-50 transition">
       <div className="flex min-w-0 items-center gap-2">
         <div
           className="grid h-8 w-8 shrink-0 place-items-center rounded-full bg-slate-100 text-xs font-semibold text-slate-700"
@@ -231,7 +205,7 @@ function Row({ item, pillBg, pillText }) {
       <span
         className={`shrink-0 rounded-md ${pillBg} px-2 py-0.5 text-sm font-semibold ${pillText}`}
       >
-        {`$${item.amountNum.toFixed(2)}`}
+        {currencyFmt.format(item.amountNum)}
       </span>
     </li>
   );

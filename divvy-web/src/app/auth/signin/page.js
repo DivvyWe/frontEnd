@@ -3,15 +3,18 @@
 
 import { useState } from "react";
 import { useRouter } from "next/navigation";
-import { FiEye, FiEyeOff } from "react-icons/fi";
+import { FiEye, FiEyeOff, FiMail, FiLock } from "react-icons/fi";
+import Image from "next/image";
 
 export default function SignInPage() {
   const router = useRouter();
-  const [emailOrPhone, setEmailOrPhone] = useState("");
+  const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState("");
   const [showPw, setShowPw] = useState(false);
+
+  const isValid = email.trim() && password.trim();
 
   async function onSubmit(e) {
     e.preventDefault();
@@ -21,15 +24,17 @@ export default function SignInPage() {
       const res = await fetch("/api/auth/login", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          email: emailOrPhone.includes("@") ? emailOrPhone : undefined,
-          phone: !emailOrPhone.includes("@") ? emailOrPhone : undefined,
-          password,
-        }),
+        body: JSON.stringify({ email, password }),
       });
-      const data = await res.json();
+      const raw = await res.text();
+      let data;
+      try {
+        data = JSON.parse(raw);
+      } catch {
+        data = { message: raw };
+      }
       if (!res.ok) throw new Error(data?.message || "Login failed");
-      router.replace("/dashboard");
+      router.replace("/groups");
     } catch (err) {
       setError(err.message);
     } finally {
@@ -41,11 +46,16 @@ export default function SignInPage() {
     <main className="min-h-screen grid place-items-center px-4 bg-[radial-gradient(60rem_40rem_at_20%_0%,#dcfce7_0%,transparent_60%),radial-gradient(50rem_30rem_at_100%_100%,#f7fee7_0%,transparent_60%)]">
       <div className="w-full max-w-md">
         {/* brand */}
-        <div className="mb-6 flex items-center gap-3 justify-center">
-          <div className="grid h-10 w-10 place-items-center rounded-xl bg-[#84CC16] text-slate-900 font-extrabold">
-            :D
-          </div>
-          <div className="text-xl font-semibold">DivIt</div>
+        <div className="mb-6 flex items-center gap-2 justify-center">
+          <Image
+            src="/icons/icon-192.png"
+            alt="Divsez logo"
+            width={40}
+            height={40}
+            priority
+            className="h-10 w-10 rounded-xl"
+          />
+          <div className="text-xl font-semibold text-[#84CC16]">Divsez</div>
         </div>
 
         <div className="rounded-2xl border border-slate-200 bg-white/90 shadow-lg shadow-lime-100/60 backdrop-blur p-6 sm:p-8">
@@ -53,7 +63,9 @@ export default function SignInPage() {
             <h1 className="text-2xl font-semibold tracking-tight">
               Welcome back
             </h1>
-            <p className="mt-1 text-sm text-slate-500">Sign in to continue</p>
+            <p className="mt-1 text-sm text-slate-500">
+              Sign in to manage and track your expenses
+            </p>
           </header>
 
           {error && (
@@ -63,25 +75,31 @@ export default function SignInPage() {
           )}
 
           <form onSubmit={onSubmit} className="space-y-4">
+            {/* Email */}
             <div>
               <label
-                htmlFor="emailOrPhone"
+                htmlFor="email"
                 className="mb-1 block text-sm font-medium text-slate-700"
               >
-                Email or Phone
+                Email
               </label>
-              <input
-                id="emailOrPhone"
-                className="w-full rounded-lg border border-slate-300 px-3 py-2 outline-none focus:border-[#84CC16] focus:ring-2 focus:ring-[#84CC16]/30"
-                type="text"
-                autoComplete="username"
-                placeholder="you@example.com or +61412345678"
-                value={emailOrPhone}
-                onChange={(e) => setEmailOrPhone(e.target.value)}
-                required
-              />
+              <div className="relative">
+                <FiMail className="pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 text-slate-400" />
+                <input
+                  id="email"
+                  name="email"
+                  type="email"
+                  autoComplete="username"
+                  placeholder="Enter your email address"
+                  value={email}
+                  onChange={(e) => setEmail(e.target.value)}
+                  required
+                  className="w-full rounded-lg border border-slate-300 pl-10 pr-3 py-2 outline-none focus:border-[#84CC16] focus:ring-2 focus:ring-[#84CC16]/30"
+                />
+              </div>
             </div>
 
+            {/* Password */}
             <div>
               <label
                 htmlFor="password"
@@ -90,15 +108,16 @@ export default function SignInPage() {
                 Password
               </label>
               <div className="relative">
+                <FiLock className="pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 text-slate-400" />
                 <input
                   id="password"
-                  className="w-full rounded-lg border border-slate-300 px-3 py-2 pr-10 outline-none focus:border-[#84CC16] focus:ring-2 focus:ring-[#84CC16]/30"
                   type={showPw ? "text" : "password"}
                   autoComplete="current-password"
-                  placeholder="••••••••"
+                  placeholder="Enter your password"
                   value={password}
                   onChange={(e) => setPassword(e.target.value)}
                   required
+                  className="w-full rounded-lg border border-slate-300 pl-10 pr-10 py-2 outline-none focus:border-[#84CC16] focus:ring-2 focus:ring-[#84CC16]/30"
                 />
                 <button
                   type="button"
@@ -115,6 +134,7 @@ export default function SignInPage() {
               </div>
             </div>
 
+            {/* Forgot password */}
             <div className="flex items-center justify-end">
               <a
                 href="#"
@@ -124,10 +144,16 @@ export default function SignInPage() {
               </a>
             </div>
 
+            {/* Submit button */}
             <button
               type="submit"
-              disabled={submitting}
-              className="relative w-full rounded-lg bg-[#84CC16] px-3 py-2.5 font-semibold text-white transition hover:bg-[#76b514] active:scale-[0.99] disabled:opacity-60"
+              disabled={!isValid || submitting}
+              className={`relative w-full rounded-lg px-3 py-2.5 font-semibold text-white transition active:scale-[0.99]
+                ${
+                  !isValid || submitting
+                    ? "bg-slate-300 cursor-not-allowed"
+                    : "bg-[#84CC16] hover:bg-[#76b514]"
+                }`}
             >
               {submitting ? (
                 <span className="inline-flex items-center justify-center gap-2">
@@ -139,15 +165,17 @@ export default function SignInPage() {
               )}
             </button>
 
+            {/* Divider */}
             <div className="flex items-center gap-3 py-2">
               <div className="h-px w-full bg-slate-200" />
               <span className="text-xs uppercase text-slate-400">or</span>
               <div className="h-px w-full bg-slate-200" />
             </div>
 
+            {/* Google login button */}
             <button
               type="button"
-              className="w-full rounded-lg border border-slate-300 bg-white px-3 py-2.5 font-medium text-slate-700 hover:bg-slate-50"
+              className="w-full rounded-lg border border-slate-300 bg-white px-3 py-2.5 font-medium text-slate-700 hover:bg-slate-50 transition"
             >
               Continue with Google
             </button>
@@ -165,7 +193,7 @@ export default function SignInPage() {
         </div>
 
         <p className="mt-6 text-center text-xs text-slate-400">
-          By continuing you agree to our Terms &amp; Privacy.
+          By continuing, you agree to our Terms &amp; Privacy Policy.
         </p>
       </div>
     </main>

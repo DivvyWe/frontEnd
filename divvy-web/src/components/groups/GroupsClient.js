@@ -489,7 +489,11 @@ export default function GroupsClient({
       <div className="flex flex-col gap-1">
         <h1 className="text-2xl font-semibold text-slate-800">
           {greet}
-          {me?.username || "there"} 👋
+          {me?.username
+            ? me.username.charAt(0).toUpperCase() +
+              me.username.slice(1).toLowerCase()
+            : "there"}{" "}
+          👋
         </h1>
         <p className="text-slate-600">Let’s split smarter today.</p>
       </div>

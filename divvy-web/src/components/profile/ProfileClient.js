@@ -10,13 +10,16 @@ import {
   FiPhone,
   FiUser,
   FiLogOut,
+  FiShield,
+  FiFileText,
 } from "react-icons/fi";
+import Link from "next/link";
 import LogoutButton from "@/components/LogoutButton";
 import ChangePasswordModal from "@/components/ChangePasswordModal";
 
 const BRAND = "#84CC16";
 
-/* PATCH profile helper — adjust the URL if your backend differs */
+/* PATCH profile helper */
 async function patchProfile(payload) {
   const res = await fetch("/api/proxy/auth/update", {
     method: "PATCH",
@@ -30,6 +33,7 @@ async function patchProfile(payload) {
   return res.json();
 }
 
+/* ------------------------------ Editable Field ------------------------------ */
 function FieldRow({
   icon: Icon,
   label,
@@ -117,6 +121,7 @@ function FieldRow({
   );
 }
 
+/* ------------------------------ Profile ------------------------------ */
 export default function ProfileClient({ initialMe }) {
   const [me, setMe] = useState(initialMe);
   const [saving, setSaving] = useState(false);
@@ -167,7 +172,7 @@ export default function ProfileClient({ initialMe }) {
             </button>
           </div>
 
-          {/* Inline editable fields */}
+          {/* Editable fields */}
           <div className="grid gap-3">
             <FieldRow
               icon={FiUser}
@@ -200,36 +205,77 @@ export default function ProfileClient({ initialMe }) {
 
         {/* Logout card */}
         <div className="mt-6 rounded-2xl bg-white p-6 shadow-sm ring-1 ring-black/5">
-          <div className="mb-3 flex items-center justify-between">
-            <div>
-              <h2 className="text-lg font-semibold text-slate-900">Sign out</h2>
-              <p className="text-sm text-slate-600">
-                You’ll need to sign in again to access your groups.
-              </p>
-            </div>
-          </div>
-          <div className="flex items-center justify-between rounded-xl border border-slate-200 p-4">
+          <h2 className="text-lg font-semibold text-slate-900 mb-3">
+            Sign out
+          </h2>
+          <p className="text-sm text-slate-600 mb-4">
+            You’ll need to sign in again to access your groups.
+          </p>
+
+          <div className="rounded-xl border border-slate-200 p-5 flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
             <div className="flex items-center gap-3">
-              <div className="grid h-9 w-9 place-items-center rounded-full bg-red-50">
-                <FiLogOut className="h-5 w-5 text-red-600" />
+              <div className="grid h-10 w-10 place-items-center rounded-full bg-[#84CC16]/10">
+                <FiLogOut className="h-5 w-5 text-[#84CC16]" />
               </div>
-              <div className="text-sm">
+              <div>
                 <div className="font-medium text-slate-900">
                   Logout of this account
                 </div>
-                <div className="text-slate-600">
-                  This will end your current session.
+                <div className="text-sm text-slate-600">
+                  Ends your current session securely.
                 </div>
               </div>
             </div>
-            <div>
+
+            {/* Modern Logout Button */}
+            <button
+              onClick={() => {
+                const btn = document.querySelector("button[data-logout]");
+                if (btn) btn.click();
+              }}
+              className="w-full sm:w-auto inline-flex items-center justify-center gap-2 rounded-lg bg-[#84CC16] px-5 py-2.5 text-sm font-semibold text-white shadow-sm hover:bg-[#76b514] active:scale-[0.98] transition"
+            >
+              <FiLogOut className="h-4 w-4" />
+              Logout
+            </button>
+
+            {/* Hidden backend logout trigger */}
+            <div className="hidden">
               <LogoutButton />
             </div>
           </div>
         </div>
+
+        {/* Legal & Info card */}
+        <div className="mt-6 rounded-2xl bg-white p-6 shadow-sm ring-1 ring-black/5">
+          <h2 className="text-lg font-semibold text-slate-900 mb-3">
+            Legal & Info
+          </h2>
+          <p className="text-sm text-slate-600 mb-4">
+            Review our policies to understand how Divsez protects your data and
+            your rights as a user.
+          </p>
+
+          <div className="flex flex-col sm:flex-row gap-3">
+            <Link
+              href="/privacy"
+              className="inline-flex items-center justify-center gap-2 rounded-lg border border-slate-200 bg-white px-4 py-2.5 text-sm font-medium text-slate-700 hover:bg-slate-50 hover:text-[#84CC16] transition"
+            >
+              <FiShield className="h-4 w-4" />
+              Privacy Policy
+            </Link>
+            <Link
+              href="/terms"
+              className="inline-flex items-center justify-center gap-2 rounded-lg border border-slate-200 bg-white px-4 py-2.5 text-sm font-medium text-slate-700 hover:bg-slate-50 hover:text-[#84CC16] transition"
+            >
+              <FiFileText className="h-4 w-4" />
+              Terms & Conditions
+            </Link>
+          </div>
+        </div>
       </div>
 
-      {/* 🔐 Change Password Modal (listens to the event and opens) */}
+      {/* Change Password Modal */}
       <ChangePasswordModal />
     </>
   );

@@ -10,8 +10,8 @@ export function middleware(req) {
   if (pathname.startsWith("/auth")) {
     if (token) {
       const url = req.nextUrl.clone();
-      url.pathname = "/dashboard";
-      console.log("[mw] redirect -> /dashboard");
+      url.pathname = "/groups";
+      console.log("[mw] redirect -> /groups");
       return NextResponse.redirect(url);
     }
     return NextResponse.next();

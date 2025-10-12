@@ -2,20 +2,15 @@
 
 import { useState } from "react";
 import { useRouter } from "next/navigation";
-import {
-  FiUser,
-  FiMail,
-  FiPhone,
-  FiLock,
-  FiEye,
-  FiEyeOff,
-  FiCheck,
-} from "react-icons/fi";
+import { FiUser, FiMail, FiLock, FiEye, FiEyeOff } from "react-icons/fi";
+import Image from "next/image";
+
+const EMAIL_RE = /^[^\s@]+@[^\s@]+\.[^\s@]{2,}$/i;
 
 export default function SignUpPage() {
   const router = useRouter();
-  const [username, setUsername] = useState("");
-  const [emailOrPhone, setEmailOrPhone] = useState("");
+  const [fullName, setFullName] = useState("");
+  const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
   const [confirm, setConfirm] = useState("");
   const [showPw, setShowPw] = useState(false);
@@ -24,22 +19,22 @@ export default function SignUpPage() {
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState("");
 
-  const isEmail = emailOrPhone.includes("@");
-
   async function onSubmit(e) {
     e.preventDefault();
     setError("");
 
+    if (!EMAIL_RE.test(email.trim())) {
+      return setError("Please enter a valid email address");
+    }
     if (password !== confirm) return setError("Passwords do not match");
     if (!agree) return setError("Please agree to the Terms & Privacy");
 
     setSubmitting(true);
     try {
       const payload = {
-        username: username.trim(),
+        username: fullName.trim(),
+        email: email.trim(),
         password,
-        email: isEmail ? emailOrPhone.trim() : undefined,
-        phone: !isEmail ? emailOrPhone.trim() : undefined,
       };
 
       const res = await fetch("/api/auth/register", {
@@ -48,7 +43,6 @@ export default function SignUpPage() {
         body: JSON.stringify(payload),
       });
 
-      // robust parse (handles plain text or JSON)
       const raw = await res.text();
       let data;
       try {
@@ -61,15 +55,14 @@ export default function SignUpPage() {
         if (res.status === 409) {
           setError(
             data?.message ||
-              "An account with this email/phone or username already exists. Try signing in."
+              "An account with this email already exists. Try signing in."
           );
           return;
         }
         throw new Error(data?.message || "Registration failed");
       }
 
-      // success: cookie is set server-side
-      router.replace("/dashboard");
+      router.replace("/groups");
     } catch (err) {
       setError(err.message);
     } finally {
@@ -78,14 +71,19 @@ export default function SignUpPage() {
   }
 
   return (
-    <main className="min-h-screen grid place-items-center  py-10 px-4 bg-[radial-gradient(60rem_40rem_at_20%_0%,#dcfce7_0%,transparent_60%),radial-gradient(50rem_30rem_at_100%_100%,#f7fee7_0%,transparent_60%)]">
+    <main className="min-h-screen grid place-items-center py-10 px-4 bg-[radial-gradient(60rem_40rem_at_20%_0%,#dcfce7_0%,transparent_60%),radial-gradient(50rem_30rem_at_100%_100%,#f7fee7_0%,transparent_60%)]">
       <div className="w-full max-w-md">
-        {/* brand (matches signin) */}
-        <div className="mb-6 flex items-center gap-3 justify-center">
-          <div className="grid h-10 w-10 place-items-center rounded-xl bg-[#84CC16] text-white font-extrabold">
-            :D
-          </div>
-          <div className="text-xl font-semibold">DivIt</div>
+        {/* brand */}
+        <div className="mb-6 flex items-center gap-2 justify-center">
+          <Image
+            src="/icons/icon-192.png"
+            alt="Divsez logo"
+            width={40}
+            height={40}
+            priority
+            className="h-10 w-10 rounded-xl"
+          />
+          <div className="text-xl font-semibold text-[#84CC16]">Divsez</div>
         </div>
 
         <div className="rounded-2xl border border-slate-200 bg-white/90 shadow-lg shadow-lime-100/60 backdrop-blur p-6 sm:p-8">
@@ -94,7 +92,7 @@ export default function SignUpPage() {
               Create your account
             </h1>
             <p className="mt-1 text-sm text-slate-500">
-              It’s free and only takes a minute
+              Join Divsez and simplify your shared expenses
             </p>
           </header>
 
@@ -105,54 +103,52 @@ export default function SignUpPage() {
           )}
 
           <form onSubmit={onSubmit} className="space-y-4">
-            {/* Username */}
+            {/* Full name */}
             <div>
               <label
-                htmlFor="username"
+                htmlFor="fullName"
                 className="mb-1 block text-sm font-medium text-slate-700"
               >
-                Username
+                Full name
               </label>
               <div className="relative">
                 <FiUser className="pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 text-slate-400" />
                 <input
-                  id="username"
+                  id="fullName"
+                  name="fullName"
                   className="w-full rounded-lg border border-slate-300 pl-10 pr-3 py-2 outline-none focus:border-[#84CC16] focus:ring-2 focus:ring-[#84CC16]/30"
-                  placeholder="yourname"
-                  value={username}
-                  onChange={(e) => setUsername(e.target.value)}
+                  placeholder="Enter your full name"
+                  value={fullName}
+                  onChange={(e) => setFullName(e.target.value)}
                   required
+                  autoComplete="name"
                 />
               </div>
             </div>
 
-            {/* Email or Phone */}
+            {/* Email */}
             <div>
               <label
-                htmlFor="emailOrPhone"
+                htmlFor="email"
                 className="mb-1 block text-sm font-medium text-slate-700"
               >
-                Email or Phone
+                Email
               </label>
               <div className="relative">
-                {isEmail ? (
-                  <FiMail className="pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 text-slate-400" />
-                ) : (
-                  <FiPhone className="pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 text-slate-400" />
-                )}
+                <FiMail className="pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 text-slate-400" />
                 <input
-                  id="emailOrPhone"
+                  id="email"
+                  name="email"
                   className="w-full rounded-lg border border-slate-300 pl-10 pr-3 py-2 outline-none focus:border-[#84CC16] focus:ring-2 focus:ring-[#84CC16]/30"
-                  placeholder={isEmail ? "you@example.com" : "+61412345678"}
-                  value={emailOrPhone}
-                  onChange={(e) => setEmailOrPhone(e.target.value)}
+                  type="email"
+                  inputMode="email"
+                  placeholder="name@company.com"
+                  value={email}
+                  onChange={(e) => setEmail(e.target.value)}
                   required
+                  autoComplete="email"
                 />
               </div>
-              <p className="mt-1 text-xs text-slate-500">
-                Tip: include <span className="font-mono">@</span> to use email;
-                otherwise it’s treated as phone.
-              </p>
             </div>
 
             {/* Password */}
@@ -167,12 +163,14 @@ export default function SignUpPage() {
                 <FiLock className="pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 text-slate-400" />
                 <input
                   id="password"
+                  name="password"
                   className="w-full rounded-lg border border-slate-300 pl-10 pr-10 py-2 outline-none focus:border-[#84CC16] focus:ring-2 focus:ring-[#84CC16]/30"
                   type={showPw ? "text" : "password"}
-                  placeholder="••••••••"
+                  placeholder="Create a strong password"
                   value={password}
                   onChange={(e) => setPassword(e.target.value)}
                   required
+                  autoComplete="new-password"
                 />
                 <button
                   type="button"
@@ -197,12 +195,14 @@ export default function SignUpPage() {
                 <FiLock className="pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 text-slate-400" />
                 <input
                   id="confirm"
+                  name="confirm"
                   className="w-full rounded-lg border border-slate-300 pl-10 pr-10 py-2 outline-none focus:border-[#84CC16] focus:ring-2 focus:ring-[#84CC16]/30"
                   type={showPw2 ? "text" : "password"}
-                  placeholder="••••••••"
+                  placeholder="Re-enter your password"
                   value={confirm}
                   onChange={(e) => setConfirm(e.target.value)}
                   required
+                  autoComplete="new-password"
                 />
                 <button
                   type="button"
@@ -234,7 +234,7 @@ export default function SignUpPage() {
               </span>
             </label>
 
-            {/* Button (disabled until agree) */}
+            {/* Button */}
             <button
               type="submit"
               disabled={!agree || submitting}
@@ -246,7 +246,7 @@ export default function SignUpPage() {
                     : "bg-[#84CC16] text-white hover:bg-[#76b514]"
                 }`}
             >
-              {submitting ? "Creating account…" : "Create account"}
+              {submitting ? "Creating your account…" : "Create account"}
             </button>
 
             <p className="text-center text-sm text-slate-600">
@@ -262,7 +262,7 @@ export default function SignUpPage() {
         </div>
 
         <p className="mt-6 text-center text-xs text-slate-400">
-          By continuing you agree to our Terms &amp; Privacy.
+          By continuing, you agree to our Terms &amp; Privacy Policy.
         </p>
       </div>
     </main>

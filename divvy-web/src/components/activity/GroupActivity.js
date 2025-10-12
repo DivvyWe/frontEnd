@@ -15,13 +15,21 @@ const fmtTime = new Intl.DateTimeFormat(undefined, {
   minute: "2-digit",
 });
 
+// Local currency formatter
+const CURRENCY = process.env.NEXT_PUBLIC_CURRENCY || "USD";
+const currencyFmt = new Intl.NumberFormat(undefined, {
+  style: "currency",
+  currency: CURRENCY,
+  currencyDisplay: "narrowSymbol",
+  maximumFractionDigits: 2,
+});
+
 const titleCase = (s = "") =>
   String(s)
     .toLowerCase()
     .replace(/\b\w/g, (m) => m.toUpperCase());
 
 const displayName = (u) => u?.username || u?.email || u?.phone || "Someone";
-const defaultFmtMoney = (n) => `$${(Number(n) || 0).toFixed(2)}`;
 
 function monthKey(d) {
   const dt = new Date(d);
@@ -32,7 +40,6 @@ function monthLabel(key) {
   return fmtMonthHeader.format(new Date(y, m - 1, 1));
 }
 
-// Left date block parts → "FRI" / "12"
 function weekdayAndDay(dateStr) {
   const d = new Date(dateStr);
   return {
@@ -41,7 +48,7 @@ function weekdayAndDay(dateStr) {
   };
 }
 
-/* ---------- viewer net (for “you lent/borrowed”) ---------- */
+/* ---------- compute net ---------- */
 function computeViewerNet(expense, viewerId) {
   if (!expense || !viewerId) return null;
   const toId = (x) => x?.toString?.() ?? String(x);
@@ -68,6 +75,7 @@ async function fetchMe() {
   if (!res.ok) return null;
   return res.json().catch(() => null);
 }
+
 async function fetchActivity(groupId, limit, cursor) {
   const qp = new URLSearchParams({ limit: String(limit) });
   if (cursor) qp.set("cursor", cursor);
@@ -86,11 +94,7 @@ async function fetchActivity(groupId, limit, cursor) {
 }
 
 /* ---------- component ---------- */
-export default function GroupActivity({
-  groupId,
-  pageSize = 30,
-  fmt = defaultFmtMoney, // keep consistent with GroupExpenses
-}) {
+export default function GroupActivity({ groupId, pageSize = 30 }) {
   const router = useRouter();
 
   const [me, setMe] = useState(null);
@@ -99,7 +103,7 @@ export default function GroupActivity({
   const [loading, setLoading] = useState(true);
   const [loadingMore, setLoadingMore] = useState(false);
   const [error, setError] = useState("");
-  const [filter, setFilter] = useState("all"); // all | expenses | payments | members
+  const [filter, setFilter] = useState("all");
 
   useEffect(() => {
     if (!groupId) return;
@@ -134,7 +138,7 @@ export default function GroupActivity({
     }
   }
 
-  /* filter rows (UI only) */
+  /* filter + group */
   const filtered = useMemo(() => {
     if (filter === "all") return rows;
     if (filter === "payments") return rows.filter((r) => r.type === "payment");
@@ -147,13 +151,11 @@ export default function GroupActivity({
           "inviteSent",
         ].includes(r.type)
       );
-    // expenses
     return rows.filter((r) =>
       ["expenseCreated", "expenseUpdated", "expenseDeleted"].includes(r.type)
     );
   }, [rows, filter]);
 
-  /* group by month (single card per month) */
   const byMonth = useMemo(() => {
     const m = new Map();
     for (const item of filtered) {
@@ -164,7 +166,7 @@ export default function GroupActivity({
     return m;
   }, [filtered]);
 
-  /* lines */
+  /* helpers */
   const lineMain = (item) => {
     const who = displayName(item.actor);
     const desc = item.expense?.description
@@ -226,7 +228,6 @@ export default function GroupActivity({
     return "";
   };
 
-  // Role chip without generic "involved"
   function roleMeta(item) {
     const meId = me?._id || me?.id;
     const meStr = String(meId || "");
@@ -236,16 +237,14 @@ export default function GroupActivity({
       const payees = (item.contributors || []).map((u) =>
         String(u?._id || u?.id || u)
       );
-      if (actor === meStr) {
+      if (actor === meStr)
         return { text: "You paid", bg: "bg-slate-50", color: "text-slate-600" };
-      }
-      if (payees.includes(meStr)) {
+      if (payees.includes(meStr))
         return {
           text: "You were paid",
           bg: "bg-slate-50",
           color: "text-slate-600",
         };
-      }
       return { text: null };
     }
 
@@ -256,29 +255,26 @@ export default function GroupActivity({
     ) {
       const net = computeViewerNet(item.expense, meId);
       if (typeof net === "number") {
-        if (net > 0.009) {
+        if (net > 0.009)
           return {
             text: "you lent",
             bg: "bg-emerald-50",
             color: "text-emerald-700",
-            amount: fmt(net),
+            amount: currencyFmt.format(net),
           };
-        } else if (net < -0.009) {
+        if (net < -0.009)
           return {
             text: "you borrowed",
             bg: "bg-amber-50",
             color: "text-amber-700",
-            amount: fmt(Math.abs(net)),
+            amount: currencyFmt.format(Math.abs(net)),
           };
-        }
       }
-      return { text: null };
     }
-
     return { text: null };
   }
 
-  /* ---- UI states ---- */
+  /* ---- UI ---- */
   if (loading) {
     return (
       <section className="rounded-2xl bg-white p-4 shadow-sm ring-1 ring-black/5 text-sm text-slate-700">
@@ -286,6 +282,7 @@ export default function GroupActivity({
       </section>
     );
   }
+
   if (error) {
     return (
       <section className="rounded-2xl bg-white p-4 shadow-sm ring-1 ring-black/5">
@@ -295,23 +292,42 @@ export default function GroupActivity({
       </section>
     );
   }
+
   if (!rows.length) {
     return (
-      <section className="rounded-2xl bg-white p-4 shadow-sm ring-1 ring-black/5 text-xs text-slate-500">
-        No activity yet.
+      <section className="rounded-2xl bg-white p-8 shadow-sm ring-1 ring-black/5 text-center">
+        <div className="mx-auto mb-3 flex h-14 w-14 items-center justify-center rounded-full bg-slate-100 text-slate-400">
+          <svg
+            width="28"
+            height="28"
+            viewBox="0 0 24 24"
+            aria-hidden="true"
+            className="h-7 w-7"
+          >
+            <path
+              fill="currentColor"
+              d="M12 2a10 10 0 1 0 0 20a10 10 0 0 0 0-20Zm0 3a1.25 1.25 0 1 1 0 2.5A1.25 1.25 0 0 1 12 5Zm1 5v7h-2v-7h2Z"
+            />
+          </svg>
+        </div>
+        <h3 className="text-lg font-semibold text-slate-800">
+          No activity yet
+        </h3>
+        <p className="mt-1 text-sm text-slate-500">
+          Group actions like adding expenses, members, or payments will appear
+          here.
+        </p>
       </section>
     );
   }
 
+  /* ----- render list ----- */
   return (
     <section className="rounded-2xl bg-white p-4 shadow-sm ring-1 ring-black/5">
-      {/* header (kept consistent with GroupExpenses) */}
       <div className="mb-2 flex items-center justify-between">
         <h2 className="text-sm font-semibold text-slate-900">Activity</h2>
-        {/* Filter control placeholder if you add later */}
       </div>
 
-      {/* months (single soft card per month) */}
       {[...byMonth.keys()].map((mk, mi, arr) => {
         const items = byMonth.get(mk) || [];
         return (
@@ -328,11 +344,9 @@ export default function GroupActivity({
                   const sub = lineSub(item);
                   const meta = roleMeta(item);
 
-                  // 🔗 prefer settlement link for payments; otherwise expense
                   const expenseId =
                     item.expense?._id || item.expense?.id || item.expense;
 
-                  // Robustly resolve a settlement/payment id in various shapes
                   const settlementId =
                     item.settlement?._id ||
                     item.settlement?.id ||
@@ -340,13 +354,8 @@ export default function GroupActivity({
                     item.payment?.id ||
                     item.settlementId ||
                     item.paymentId ||
-                    (typeof item.settlement === "string"
-                      ? item.settlement
-                      : null) ||
-                    (typeof item.payment === "string" ? item.payment : null) ||
                     null;
 
-                  // Build the target
                   const href =
                     item.type === "payment" && settlementId
                       ? `/settlements/${settlementId}`
@@ -354,71 +363,14 @@ export default function GroupActivity({
                       ? `/expenses/${groupId}/${expenseId}`
                       : null;
 
-                  // DEBUG: log resolution per item
-                  console.log("[Activity] row resolved", {
-                    _id: item._id,
-                    type: item.type,
-                    expenseId,
-                    settlementId,
-                    href,
-                    createdAt: item.createdAt,
-                    actor: item.actor?._id || item.actor?.id || item.actor,
-                  });
-
                   const Row = href ? Link : "div";
-                  const rowProps = href
-                    ? {
-                        href,
-                        "aria-label": main,
-                        onClick: (e) => {
-                          // Log click and provide a programmatic fallback
-                          console.log("[Activity] click ->", {
-                            href,
-                            type: item.type,
-                            expenseId,
-                            settlementId,
-                          });
-                          // If something blocks Link navigation, push manually.
-                          // (We let default happen, but as a safety we also push.)
-                          // Avoid double-navigation on meta/ctrl clicks.
-                          if (
-                            !e.metaKey &&
-                            !e.ctrlKey &&
-                            !e.shiftKey &&
-                            !e.altKey
-                          ) {
-                            // Give the default Link a tick; if it doesn't navigate, push.
-                            setTimeout(() => {
-                              try {
-                                // this is idempotent if navigation already occurred
-                                router.push(href);
-                              } catch {}
-                            }, 0);
-                          }
-                        },
-                      }
-                    : {
-                        onClick: () =>
-                          console.log("[Activity] no href for row", {
-                            _id: item._id,
-                            type: item.type,
-                          }),
-                      };
 
                   return (
-                    <li
-                      key={item._id || settlementId || expenseId}
-                      data-type={item.type}
-                      data-expenseid={expenseId || ""}
-                      data-settlementid={settlementId || ""}
-                      data-href={href || ""}
-                    >
+                    <li key={item._id || settlementId || expenseId}>
                       <Row
-                        {...rowProps}
+                        href={href}
                         className="grid grid-cols-[56px_1fr_auto] items-center gap-3 rounded-xl no-underline hover:bg-slate-50 cursor-pointer"
-                        title={main}
                       >
-                        {/* left date block: FRI / 12 */}
                         <div className="text-center leading-tight">
                           <div className="text-[11px] font-semibold text-slate-500">
                             {wd}
@@ -428,31 +380,27 @@ export default function GroupActivity({
                           </div>
                         </div>
 
-                        {/* main content */}
                         <div className="min-w-0">
                           <div className="truncate text-sm font-medium text-slate-900">
                             {main}
                           </div>
                           <div className="mt-0.5 flex items-center gap-2 text-xs text-slate-500">
-                            {sub ? (
-                              <span className="truncate">{sub}</span>
-                            ) : null}
-                            {sub ? <span aria-hidden="true">•</span> : null}
+                            {sub && <span className="truncate">{sub}</span>}
+                            {sub && <span aria-hidden="true">•</span>}
                             <span>
                               {fmtTime.format(new Date(item.createdAt))}
                             </span>
                           </div>
                         </div>
 
-                        {/* right status + amount + chevron (only if clickable) */}
                         <div className="shrink-0 text-right">
-                          {meta.text ? (
+                          {meta.text && (
                             <div
                               className={`inline-block rounded-full px-2 py-0.5 text-[11px] font-semibold ${meta.bg} ${meta.color}`}
                             >
                               {meta.text}
                             </div>
-                          ) : null}
+                          )}
                           {meta.amount ? (
                             <div
                               className={`${meta.color} mt-1 text-sm font-semibold`}
@@ -461,19 +409,8 @@ export default function GroupActivity({
                             </div>
                           ) : item.type === "payment" && item.amount ? (
                             <div className="mt-1 text-sm font-semibold text-slate-900">
-                              {fmt(item.amount)}
-                            </div>
-                          ) : null}
-                          {href ? (
-                            <div className="ml-auto mt-0.5 flex justify-end text-slate-400">
-                              <svg
-                                width="18"
-                                height="18"
-                                viewBox="0 0 24 24"
-                                aria-hidden="true"
-                              >
-                                <path fill="currentColor" d="M9 6l6 6-6 6" />
-                              </svg>
+                              {item.formattedAmount ??
+                                currencyFmt.format(Number(item.amount) || 0)}
                             </div>
                           ) : null}
                         </div>
@@ -483,8 +420,7 @@ export default function GroupActivity({
                 })}
               </ul>
 
-              {/* load more shown only after the last month; no “No more activity” */}
-              {mk === arr[arr.length - 1] && cursor ? (
+              {mk === arr[arr.length - 1] && cursor && (
                 <div className="mt-2 flex justify-center">
                   <button
                     type="button"
@@ -495,7 +431,7 @@ export default function GroupActivity({
                     {loadingMore ? "Loading…" : "Load more"}
                   </button>
                 </div>
-              ) : null}
+              )}
             </div>
           </div>
         );
