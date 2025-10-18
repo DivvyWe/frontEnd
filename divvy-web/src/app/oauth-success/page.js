@@ -1,9 +1,13 @@
+// app/oauth-success/page.js
 "use client";
 
-import { useEffect, useState } from "react";
+import { Suspense, useEffect, useState } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
 
-export default function OAuthSuccessPage() {
+export const dynamic = "force-dynamic"; // don't prerender this OAuth hop
+export const revalidate = 0;
+
+function OAuthSuccessInner() {
   const router = useRouter();
   const params = useSearchParams();
   const [msg, setMsg] = useState("Finalising sign-in…");
@@ -22,25 +26,11 @@ export default function OAuthSuccessPage() {
       return;
     }
 
-    // 2) Store JWT in a cookie for the app (30 days)
-    //    Secure flag only in production to avoid dev http issues
+    // 2) Store JWT in a readable cookie (30 days).
+    //    Note: HttpOnly cannot be set from JS — keep this client-visible.
     const isProd =
       typeof window !== "undefined" && window.location.protocol === "https:";
-    const cookie = [
-      `token=${token}`,
-      "Path=/",
-      `Max-Age=${60 * 60 * 24 * 30}`, // 30 days
-      "HttpOnly", // <-- remove if you need to read token in client JS; keep for security if server-only usage
-      "SameSite=Lax",
-      isProd ? "Secure" : null,
-    ]
-      .filter(Boolean)
-      .join("; ");
-
-    // Note: 'HttpOnly' cookies cannot be set from JS.
-    // If you need HttpOnly, set the cookie server-side (via a small API route).
-    // For client-side, drop HttpOnly:
-    const clientCookie = [
+    document.cookie = [
       `token=${token}`,
       "Path=/",
       `Max-Age=${60 * 60 * 24 * 30}`,
@@ -50,27 +40,16 @@ export default function OAuthSuccessPage() {
       .filter(Boolean)
       .join("; ");
 
-    try {
-      // Prefer a readable cookie in the browser for your existing client-side checks:
-      document.cookie = clientCookie;
-    } catch {
-      // Fallback: store in localStorage if cookies blocked
-      localStorage.setItem("token", token);
-    }
-
-    // 3) (Optional) verify by calling /api/auth/me via the proxy
-    //    We set the Authorization header once here so it works immediately,
-    //    even before the cookie is picked up by the proxy on the next page load.
+    // 3) Optional: verify immediately, then go to /groups
     (async () => {
       try {
         setMsg("Checking your session…");
-        const res = await fetch("/api/proxy/auth/me", {
+        await fetch("/api/proxy/auth/me", {
           headers: { Authorization: `Bearer ${token}` },
           cache: "no-store",
         });
-        if (!res.ok) throw new Error("Auth check failed");
       } catch {
-        // Even if the check fails, proceed; the cookie should work on next navigation
+        // ignore; cookie will be used on next nav
       }
       router.replace("/groups");
     })();
@@ -82,5 +61,21 @@ export default function OAuthSuccessPage() {
         <div className="animate-pulse text-lg">{msg}</div>
       </div>
     </main>
+  );
+}
+
+export default function OAuthSuccessPage() {
+  return (
+    <Suspense
+      fallback={
+        <main className="min-h-screen grid place-items-center">
+          <div className="text-center text-slate-600">
+            <div className="animate-pulse text-lg">Loading…</div>
+          </div>
+        </main>
+      }
+    >
+      <OAuthSuccessInner />
+    </Suspense>
   );
 }
