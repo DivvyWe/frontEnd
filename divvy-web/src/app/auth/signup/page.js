@@ -3,6 +3,7 @@
 import { useState } from "react";
 import { useRouter } from "next/navigation";
 import { FiUser, FiMail, FiLock, FiEye, FiEyeOff } from "react-icons/fi";
+import { FcGoogle } from "react-icons/fc";
 import Image from "next/image";
 
 const EMAIL_RE = /^[^\s@]+@[^\s@]+\.[^\s@]{2,}$/i;
@@ -18,6 +19,13 @@ export default function SignUpPage() {
   const [agree, setAgree] = useState(false);
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState("");
+
+  const API_BASE = process.env.NEXT_PUBLIC_API_URL || "";
+
+  function handleGoogleSignup() {
+    const oauthUrl = "/api/proxy/auth/google";
+    window.location.assign(oauthUrl);
+  }
 
   async function onSubmit(e) {
     e.preventDefault();
@@ -62,6 +70,7 @@ export default function SignUpPage() {
         throw new Error(data?.message || "Registration failed");
       }
 
+      // Optional: you can route to a "Check your email" page if verifying email first
       router.replace("/groups");
     } catch (err) {
       setError(err.message);
@@ -102,6 +111,30 @@ export default function SignUpPage() {
             </div>
           )}
 
+          {/* Google sign up */}
+          <button
+            type="button"
+            onClick={handleGoogleSignup}
+            className="mb-4 inline-flex w-full items-center justify-center gap-3 rounded-lg border border-slate-300 bg-white px-3 py-2.5 font-medium text-slate-700 hover:bg-slate-50 active:scale-[0.99] transition"
+            aria-label="Continue with Google"
+          >
+            <FcGoogle className="text-xl" />
+            Continue with Google
+          </button>
+
+          {/* Divider */}
+          <div className="relative my-5">
+            <div className="absolute inset-0 flex items-center">
+              <span className="w-full border-t border-slate-200" />
+            </div>
+            <div className="relative flex justify-center">
+              <span className="bg-white px-3 text-xs uppercase tracking-wider text-slate-400">
+                or
+              </span>
+            </div>
+          </div>
+
+          {/* Email sign up form */}
           <form onSubmit={onSubmit} className="space-y-4">
             {/* Full name */}
             <div>

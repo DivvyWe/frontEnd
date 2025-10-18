@@ -4,6 +4,7 @@
 import { useState } from "react";
 import { useRouter } from "next/navigation";
 import { FiEye, FiEyeOff, FiMail, FiLock } from "react-icons/fi";
+import { FcGoogle } from "react-icons/fc";
 import Image from "next/image";
 
 export default function SignInPage() {
@@ -16,16 +17,26 @@ export default function SignInPage() {
 
   const isValid = email.trim() && password.trim();
 
+  function handleGoogleSignIn() {
+    // Go through Next proxy → backend /api/auth/google
+    window.location.assign("/api/proxy/auth/google");
+  }
+
   async function onSubmit(e) {
     e.preventDefault();
+    if (!isValid || submitting) return;
     setSubmitting(true);
     setError("");
+
     try {
-      const res = await fetch("/api/auth/login", {
+      // Use proxy so we never hardcode backend URL
+      const res = await fetch("/api/proxy/auth/login", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ email, password }),
+        cache: "no-store",
       });
+
       const raw = await res.text();
       let data;
       try {
@@ -33,10 +44,43 @@ export default function SignInPage() {
       } catch {
         data = { message: raw };
       }
-      if (!res.ok) throw new Error(data?.message || "Login failed");
+
+      if (!res.ok) {
+        throw new Error(data?.message || "Login failed");
+      }
+
+      const token = data?.token;
+      if (!token) {
+        throw new Error("No token returned from server");
+      }
+
+      // Store token in a client cookie (30 days)
+      const isProd =
+        typeof window !== "undefined" && window.location.protocol === "https:";
+      const cookie = [
+        `token=${token}`,
+        "Path=/",
+        `Max-Age=${60 * 60 * 24 * 30}`,
+        "SameSite=Lax",
+        isProd ? "Secure" : null,
+      ]
+        .filter(Boolean)
+        .join("; ");
+      document.cookie = cookie;
+
+      // Optional: quick verify so user sees groups immediately
+      try {
+        await fetch("/api/proxy/auth/me", {
+          headers: { Authorization: `Bearer ${token}` },
+          cache: "no-store",
+        });
+      } catch {
+        /* ignore */
+      }
+
       router.replace("/groups");
     } catch (err) {
-      setError(err.message);
+      setError(err.message || "Login failed");
     } finally {
       setSubmitting(false);
     }
@@ -175,8 +219,11 @@ export default function SignInPage() {
             {/* Google login button */}
             <button
               type="button"
-              className="w-full rounded-lg border border-slate-300 bg-white px-3 py-2.5 font-medium text-slate-700 hover:bg-slate-50 transition"
+              onClick={handleGoogleSignIn}
+              className="inline-flex w-full items-center justify-center gap-3 rounded-lg border border-slate-300 bg-white px-3 py-2.5 font-medium text-slate-700 hover:bg-slate-50 transition active:scale-[0.99]"
+              aria-label="Continue with Google"
             >
+              <FcGoogle className="text-xl" />
               Continue with Google
             </button>
           </form>
