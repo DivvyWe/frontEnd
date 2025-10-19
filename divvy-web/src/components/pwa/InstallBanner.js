@@ -8,7 +8,7 @@ const IOS_SUPPRESS_KEY = "pwa-ios-suppress-until";
 const DAY = 24 * 60 * 60 * 1000;
 const SHOW_DELAY_MS = 300;
 
-/** Strict phone detection (exclude desktop & most tablets) */
+/** Strict phone detection (exclude desktop & most tablets, include big phones/foldables) */
 function isPhoneDevice() {
   if (typeof window === "undefined") return false;
 
@@ -26,7 +26,7 @@ function isPhoneDevice() {
   // Pointer/screen hints
   const coarse = matchMedia?.("(pointer: coarse)")?.matches;
   const maxSide = Math.min(screen?.width || 0, screen?.height || 0);
-  const phoneSized = maxSide > 0 && maxSide <= 600; // <=600px → phone-ish
+  const phoneSized = maxSide > 0 && maxSide <= 768; // <=768px → include large phones/foldables
 
   return (uaDataMobile || isPhoneUA) && (coarse || phoneSized) && !isIPadLike;
 }
@@ -35,6 +35,7 @@ export default function InstallBanner() {
   const [visible, setVisible] = useState(false);
   const [mode, setMode] = useState("android"); // 'android' | 'ios'
   const [isPhone, setIsPhone] = useState(false);
+  const [androidReady, setAndroidReady] = useState(false);
   const delayedShowTimer = useRef(null);
 
   const isStandaloneNow = () =>
@@ -42,8 +43,7 @@ export default function InstallBanner() {
     (window.matchMedia?.("(display-mode: standalone)").matches ||
       window.navigator.standalone === true);
 
-  // Ensure a minimal global exists (the event wiring + SW register
-  // now lives in app/layout.js to avoid duplication)
+  // Ensure minimal global exists (SW + event wiring is in app/layout.js)
   useEffect(() => {
     if (typeof window === "undefined") return;
     window.__pwa = window.__pwa || {
@@ -74,16 +74,21 @@ export default function InstallBanner() {
       dp.prompt();
       try {
         const choice = await dp.userChoice;
-        if (choice?.outcome === "accepted") setVisible(false);
-        else hideFor(7 * DAY);
+        if (choice?.outcome === "accepted") {
+          setVisible(false);
+        } else {
+          // user dismissed
+          hideFor(7 * DAY);
+        }
       } catch {
         hideFor(3 * DAY);
       } finally {
         window.__pwa.deferredPrompt = null;
+        setAndroidReady(false);
       }
       return;
     }
-    // iOS: no native prompt — just close after showing the hint
+    // iOS: no native prompt — close after user sees the hint
     setVisible(false);
   }, [mode, hideFor]);
 
@@ -97,22 +102,17 @@ export default function InstallBanner() {
     []
   );
 
-  // Visibility logic driven by events that layout.js dispatches:
-  //  - pwa:can-install (Android/Chromium beforeinstallprompt bridge)
-  //  - pwa:installed
-  //  - pwa:ios-tip (layout fires this for iOS Safari)
+  // Visibility logic: driven by events dispatched in layout.js
   useEffect(() => {
     if (typeof window === "undefined") return;
 
-    // 1) Detect phone once ⟶ bail early on desktop/tablets
     const phone = isPhoneDevice();
     setIsPhone(phone);
     if (!phone) return;
 
-    // 2) Don’t show if already installed / standalone
     if (isStandaloneNow() || window.__pwa?.installed) return;
 
-    // 3) Respect cool-downs
+    // Respect cool-downs
     const now = Date.now();
     let dismissedUntil = 0;
     let iosSuppressedUntil = 0;
@@ -135,21 +135,32 @@ export default function InstallBanner() {
 
     // If captured before mount (layout may have already set these)
     const maybeShowAndroid = () => {
-      if (
-        window.__pwa?.canInstall &&
-        window.__pwa?.deferredPrompt &&
-        now > dismissedUntil
-      ) {
+      const ready = !!(
+        window.__pwa?.canInstall && window.__pwa?.deferredPrompt
+      );
+      setAndroidReady(ready);
+      if (ready && now > dismissedUntil) {
         showWithDelay("android");
       }
     };
 
     const onCanInstall = () => {
+      setAndroidReady(true);
       if (Date.now() > dismissedUntil) showWithDelay("android");
     };
     const onInstalled = () => setVisible(false);
     const onIOSTip = () => {
       if (Date.now() > iosSuppressedUntil) showWithDelay("ios");
+    };
+
+    // Allow manual open from anywhere: window.dispatchEvent(new Event('pwa:open-banner'))
+    const onOpenBanner = () => {
+      // prefer Android prompt if available; otherwise iOS hint
+      const preferAndroid = !!(
+        window.__pwa?.canInstall && window.__pwa?.deferredPrompt
+      );
+      setAndroidReady(preferAndroid);
+      showWithDelay(preferAndroid ? "android" : "ios");
     };
 
     // Hide if display-mode flips to standalone while open
@@ -160,6 +171,7 @@ export default function InstallBanner() {
     window.addEventListener("pwa:can-install", onCanInstall);
     window.addEventListener("pwa:installed", onInstalled);
     window.addEventListener("pwa:ios-tip", onIOSTip);
+    window.addEventListener("pwa:open-banner", onOpenBanner);
 
     maybeShowAndroid();
 
@@ -167,6 +179,7 @@ export default function InstallBanner() {
       window.removeEventListener("pwa:can-install", onCanInstall);
       window.removeEventListener("pwa:installed", onInstalled);
       window.removeEventListener("pwa:ios-tip", onIOSTip);
+      window.removeEventListener("pwa:open-banner", onOpenBanner);
       mq?.removeEventListener?.("change", onDisplayModeChange);
     };
   }, []);
@@ -174,8 +187,13 @@ export default function InstallBanner() {
   // 🚫 Never render on desktop/tablets
   if (!isPhone || !visible) return null;
 
+  const isAndroid = mode === "android";
+
   return (
-    <div className="fixed inset-x-0 bottom-0 z-[60]">
+    <div
+      className="fixed inset-x-0 bottom-0 z-[60]"
+      style={{ paddingBottom: "max(0px, env(safe-area-inset-bottom))" }}
+    >
       <div
         role="dialog"
         aria-live="polite"
@@ -187,6 +205,8 @@ export default function InstallBanner() {
               src="/icons/icon-192.png"
               alt="Divsez"
               className="h-full w-full object-cover"
+              loading="eager"
+              decoding="async"
             />
           </div>
 
@@ -195,10 +215,16 @@ export default function InstallBanner() {
               Install the app
             </p>
             <p className="mt-0.5 text-xs text-slate-600">
-              {mode === "android"
+              {isAndroid
                 ? "Add Divsez to your home screen."
-                : "Add Divsez to your home screen from the Share menu."}
+                : "Open Share → Add to Home Screen to install Divsez."}
             </p>
+            {!isAndroid && (
+              <p className="mt-1 text-[11px] text-slate-500">
+                Tip: In Safari, tap the <b>Share</b> icon, then choose{" "}
+                <b>Add to Home Screen</b>.
+              </p>
+            )}
           </div>
 
           <button
@@ -218,11 +244,21 @@ export default function InstallBanner() {
           >
             Don’t show again
           </button>
+
           <button
             onClick={onInstallClick}
-            className="rounded-lg bg-[#84CC16] px-3 py-2 text-xs font-semibold text-white hover:brightness-95"
+            disabled={isAndroid && !androidReady}
+            className={[
+              "rounded-lg px-3 py-2 text-xs font-semibold text-white hover:brightness-95",
+              isAndroid && !androidReady
+                ? "bg-slate-300 cursor-not-allowed"
+                : "bg-[#84CC16]",
+            ].join(" ")}
+            title={
+              isAndroid && !androidReady ? "Preparing install…" : "Install app"
+            }
           >
-            Install app
+            {isAndroid && !androidReady ? "Preparing…" : "Install app"}
           </button>
         </div>
       </div>

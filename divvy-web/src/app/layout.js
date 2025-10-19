@@ -21,9 +21,9 @@ export const metadata = {
   description: "Easily split and track group expenses with friends.",
   manifest: "/manifest.webmanifest",
   icons: {
-    icon: "/icons/favicon-16.png", // ✅ new small favicon
-    shortcut: "/icons/favicon-16.png", // ✅ browser shortcut
-    apple: "/icons/apple-touch-icon.png", // ✅ iOS homescreen icon
+    icon: "/icons/favicon-16.png", // small favicon
+    shortcut: "/icons/favicon-16.png", // browser shortcut
+    apple: "/icons/apple-touch-icon.png", // iOS homescreen icon
   },
   appleWebApp: {
     capable: true,
@@ -35,7 +35,7 @@ export const metadata = {
   },
 };
 
-// ✅ Next 15 requires themeColor in `viewport` (or `generateViewport`)
+// Next 15 requires themeColor in viewport (or generateViewport)
 export const viewport = {
   themeColor: [
     { media: "(prefers-color-scheme: light)", color: "#84CC16" },
@@ -52,52 +52,62 @@ export default function RootLayout({ children }) {
       >
         <PushClickHandler />
 
-        {/* SW registration + update hooks (production only, ES module worker) */}
+        {/* ---------------- Service Worker (HTTPS or localhost) ---------------- */}
         <Script id="sw-register" strategy="afterInteractive">
           {`
             (function(){
-              var NODE_ENV = "${process.env.NODE_ENV}";
-              if (NODE_ENV !== 'production') return;
               if (typeof window === 'undefined' || !('serviceWorker' in navigator)) return;
+
+              var isLocal = location.hostname === 'localhost' || location.hostname === '127.0.0.1';
+              var isHttps = location.protocol === 'https:';
+              if (!isLocal && !isHttps) return; // require HTTPS unless localhost
 
               navigator.serviceWorker.register('/sw.js', { type: 'module', scope: '/' })
                 .then(function(reg){
                   window.__swReg = reg;
 
+                  // If a new SW is waiting immediately (e.g., after reload)
                   if (reg.waiting) {
                     window.dispatchEvent(new CustomEvent('sw:update-available', { detail: { reg } }));
                   }
 
+                  // Track install lifecycle
                   reg.addEventListener('updatefound', function () {
                     var sw = reg.installing;
                     if (!sw) return;
                     sw.addEventListener('statechange', function () {
                       if (sw.state === 'installed') {
                         if (navigator.serviceWorker.controller) {
+                          // Updated SW installed, waiting to activate
                           window.dispatchEvent(new CustomEvent('sw:update-available', { detail: { reg } }));
                         } else {
+                          // First install
                           window.dispatchEvent(new CustomEvent('sw:ready', { detail: { reg } }));
                         }
                       }
                     });
                   });
 
+                  // When the controller changes (page now controlled by the new SW)
                   navigator.serviceWorker.addEventListener('controllerchange', function(){
                     window.dispatchEvent(new CustomEvent('sw:updated'));
                   });
 
+                  // Allow UI to request skipWaiting
                   window.addEventListener('sw:skip-waiting', function(){
                     if (reg.waiting) {
                       reg.waiting.postMessage({ type: 'SKIP_WAITING' });
                     }
                   });
                 })
-                .catch(function (err) { console.error('SW registration failed:', err); });
+                .catch(function (err) {
+                  console.error('SW registration failed:', err);
+                });
             })();
           `}
         </Script>
 
-        {/* PWA install hooks — gated to PHONES ONLY */}
+        {/* ---------------- PWA install hooks — phones only ---------------- */}
         <Script id="pwa-install-hooks" strategy="afterInteractive">
           {`
             (function () {
@@ -108,7 +118,7 @@ export default function RootLayout({ children }) {
                 var isIPadLike = (/ipad|macintosh/i.test(navigator.userAgent) && 'ontouchend' in window);
                 var coarse = window.matchMedia && window.matchMedia('(pointer: coarse)').matches;
                 var maxSide = Math.min(screen.width || 0, screen.height || 0);
-                var phoneSized = maxSide > 0 && maxSide <= 600;
+                var phoneSized = maxSide > 0 && maxSide <= 768; // include big phones / foldables
                 return (uaDataMobile || isPhoneUA) && (coarse || phoneSized) && !isIPadLike;
               }
 
@@ -123,8 +133,9 @@ export default function RootLayout({ children }) {
                   || (window.navigator.standalone === true)
               };
 
+              // Android Chrome
               window.addEventListener('beforeinstallprompt', function (e) {
-                e.preventDefault();
+                e.preventDefault(); // prevent mini-infobar
                 window.__pwa.deferredPrompt = e;
                 window.__pwa.canInstall = true;
                 window.dispatchEvent(new CustomEvent('pwa:can-install'));
@@ -136,6 +147,7 @@ export default function RootLayout({ children }) {
                 window.dispatchEvent(new CustomEvent('pwa:installed'));
               });
 
+              // iOS tip (no beforeinstallprompt)
               try {
                 var alreadyInstalled = localStorage.getItem('pwa-installed') === '1';
                 var suppressedUntil = parseInt(localStorage.getItem('pwa-ios-suppress-until') || '0', 10);
@@ -148,7 +160,7 @@ export default function RootLayout({ children }) {
           `}
         </Script>
 
-        {/* Phone-only install banner */}
+        {/* Phone-only install banner component */}
         <InstallBanner />
 
         {children}
