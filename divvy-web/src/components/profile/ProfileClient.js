@@ -53,7 +53,8 @@ function FieldRow({
 
   return (
     <div className="flex items-start gap-3 rounded-xl border border-slate-200 bg-white px-4 py-3">
-      <div className="mt-1 rounded-md bg-slate-100 p-2">
+      {/* icon box stays square */}
+      <div className="mt-1 rounded-md bg-slate-100 p-2 shrink-0 aspect-square grid place-items-center">
         <Icon className="h-4 w-4 text-slate-500" />
       </div>
 
@@ -96,7 +97,7 @@ function FieldRow({
                 }
               }}
               disabled={!dirty}
-              className={`grid h-9 w-9 place-items-center rounded-lg text-white ${
+              className={`grid h-9 w-9 aspect-square place-items-center rounded-lg text-white ${
                 dirty ? "hover:opacity-90" : "bg-slate-300 cursor-not-allowed"
               }`}
               style={dirty ? { backgroundColor: BRAND } : {}}
@@ -109,7 +110,7 @@ function FieldRow({
                 setDraft(value || "");
                 setEditing(false);
               }}
-              className="grid h-9 w-9 place-items-center rounded-lg bg-slate-100 text-slate-600 hover:bg-slate-200"
+              className="grid h-9 w-9 aspect-square place-items-center rounded-lg bg-slate-100 text-slate-600 hover:bg-slate-200"
               title="Cancel"
             >
               <FiX className="h-5 w-5" />
@@ -146,13 +147,15 @@ export default function ProfileClient({ initialMe }) {
       <div className="mx-auto max-w-3xl">
         {/* Header card */}
         <div className="rounded-2xl bg-white p-6 shadow-sm ring-1 ring-black/5">
-          <div className="mb-6 flex items-center justify-between">
-            <div className="flex items-center gap-4">
-              <div className="grid h-14 w-14 place-items-center rounded-full bg-slate-200 text-lg font-semibold text-slate-700">
+          {/* Mobile-first: stack, then row on sm+ */}
+          <div className="mb-6 flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
+            <div className="flex items-center gap-4 min-w-0">
+              {/* Avatar stays perfectly round */}
+              <div className="grid h-14 w-14 aspect-square shrink-0 place-items-center rounded-full bg-slate-200 text-lg font-semibold text-slate-700 select-none leading-none">
                 {initials}
               </div>
-              <div>
-                <h1 className="text-xl font-semibold text-slate-900">
+              <div className="min-w-0">
+                <h1 className="text-xl font-semibold text-slate-900 truncate">
                   {me?.username || "Your profile"}
                 </h1>
                 <p className="text-sm text-slate-600">
@@ -166,7 +169,7 @@ export default function ProfileClient({ initialMe }) {
                 const evt = new CustomEvent("open-change-password");
                 window.dispatchEvent(evt);
               }}
-              className="rounded-lg border border-slate-300 px-3 py-2 text-sm font-medium text-slate-700 hover:bg-slate-50"
+              className="rounded-lg border border-slate-300 px-3 py-2 text-sm font-medium text-slate-700 hover:bg-slate-50 self-start sm:self-auto"
             >
               Change password
             </button>
@@ -213,11 +216,12 @@ export default function ProfileClient({ initialMe }) {
           </p>
 
           <div className="rounded-xl border border-slate-200 p-5 flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
-            <div className="flex items-center gap-3">
-              <div className="grid h-10 w-10 place-items-center rounded-full bg-[#84CC16]/10">
+            <div className="flex items-center gap-3 min-w-0">
+              {/* icon pill also square */}
+              <div className="grid h-10 w-10 aspect-square shrink-0 place-items-center rounded-full bg-[#84CC16]/10">
                 <FiLogOut className="h-5 w-5 text-[#84CC16]" />
               </div>
-              <div>
+              <div className="min-w-0">
                 <div className="font-medium text-slate-900">
                   Logout of this account
                 </div>
