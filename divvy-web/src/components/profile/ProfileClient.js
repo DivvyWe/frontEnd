@@ -12,8 +12,11 @@ import {
   FiLogOut,
   FiShield,
   FiFileText,
+  FiLock,
+  FiMapPin,
 } from "react-icons/fi";
 import Link from "next/link";
+import { useRouter } from "next/navigation";
 import LogoutButton from "@/components/LogoutButton";
 import ChangePasswordModal from "@/components/ChangePasswordModal";
 
@@ -53,7 +56,6 @@ function FieldRow({
 
   return (
     <div className="flex items-start gap-3 rounded-xl border border-slate-200 bg-white px-4 py-3">
-      {/* icon box stays square */}
       <div className="mt-1 rounded-md bg-slate-100 p-2 shrink-0 aspect-square grid place-items-center">
         <Icon className="h-4 w-4 text-slate-500" />
       </div>
@@ -126,6 +128,8 @@ function FieldRow({
 export default function ProfileClient({ initialMe }) {
   const [me, setMe] = useState(initialMe);
   const [saving, setSaving] = useState(false);
+  const [loggingOut, setLoggingOut] = useState(false);
+  const router = useRouter();
 
   const initials = useMemo(
     () => (me?.username?.[0] || "U").toUpperCase(),
@@ -142,15 +146,42 @@ export default function ProfileClient({ initialMe }) {
     }
   }
 
+  async function handleLogout() {
+    if (loggingOut) return;
+    setLoggingOut(true);
+
+    try {
+      // 1) Try your hidden LogoutButton (if it renders a [data-logout] button)
+      const hiddenTrigger = document.querySelector("button[data-logout]");
+      if (hiddenTrigger) {
+        hiddenTrigger.click();
+      }
+
+      // 2) Also call the API directly as a reliable fallback
+      //    (adjust endpoint/method if your backend differs)
+      await fetch("/api/proxy/auth/logout", {
+        method: "POST",
+        headers: { Accept: "application/json" },
+        cache: "no-store",
+      }).catch(() => {});
+
+      // 3) Route out (to sign-in or landing)
+      router.replace("/auth/signin");
+    } catch (e) {
+      console.error(e);
+      alert("Could not log out. Please try again.");
+      setLoggingOut(false);
+    }
+  }
+
   return (
     <>
       <div className="mx-auto max-w-3xl">
         {/* Header card */}
         <div className="rounded-2xl bg-white p-6 shadow-sm ring-1 ring-black/5">
-          {/* Mobile-first: stack, then row on sm+ */}
+          {/* stack on mobile, row on sm+ */}
           <div className="mb-6 flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
             <div className="flex items-center gap-4 min-w-0">
-              {/* Avatar stays perfectly round */}
               <div className="grid h-14 w-14 aspect-square shrink-0 place-items-center rounded-full bg-slate-200 text-lg font-semibold text-slate-700 select-none leading-none">
                 {initials}
               </div>
@@ -164,14 +195,17 @@ export default function ProfileClient({ initialMe }) {
               </div>
             </div>
 
+            {/* ✅ Mobile-first Change Password button */}
             <button
               onClick={() => {
                 const evt = new CustomEvent("open-change-password");
                 window.dispatchEvent(evt);
               }}
-              className="rounded-lg border border-slate-300 px-3 py-2 text-sm font-medium text-slate-700 hover:bg-slate-50 self-start sm:self-auto"
+              aria-label="Change password"
+              className="inline-flex w-full sm:w-auto items-center justify-center gap-2 rounded-xl border border-slate-300 bg-white px-4 py-3 text-sm font-semibold text-slate-800 shadow-sm hover:bg-slate-50 active:scale-[0.99] focus:outline-none focus-visible:ring-4 focus-visible:ring-[#84CC16]/30"
             >
-              Change password
+              <FiLock className="h-4 w-4" />
+              <span>Change password</span>
             </button>
           </div>
 
@@ -179,7 +213,7 @@ export default function ProfileClient({ initialMe }) {
           <div className="grid gap-3">
             <FieldRow
               icon={FiUser}
-              label="Username"
+              label="Full Name"
               name="username"
               value={me?.username || ""}
               onSave={handleSave}
@@ -217,7 +251,6 @@ export default function ProfileClient({ initialMe }) {
 
           <div className="rounded-xl border border-slate-200 p-5 flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
             <div className="flex items-center gap-3 min-w-0">
-              {/* icon pill also square */}
               <div className="grid h-10 w-10 aspect-square shrink-0 place-items-center rounded-full bg-[#84CC16]/10">
                 <FiLogOut className="h-5 w-5 text-[#84CC16]" />
               </div>
@@ -231,19 +264,49 @@ export default function ProfileClient({ initialMe }) {
               </div>
             </div>
 
-            {/* Modern Logout Button */}
+            {/* Modern Logout Button with spinner */}
             <button
-              onClick={() => {
-                const btn = document.querySelector("button[data-logout]");
-                if (btn) btn.click();
-              }}
-              className="w-full sm:w-auto inline-flex items-center justify-center gap-2 rounded-lg bg-[#84CC16] px-5 py-2.5 text-sm font-semibold text-white shadow-sm hover:bg-[#76b514] active:scale-[0.98] transition"
+              onClick={handleLogout}
+              disabled={loggingOut}
+              className={`w-full sm:w-auto inline-flex items-center justify-center gap-2 rounded-lg px-5 py-2.5 text-sm font-semibold text-white shadow-sm transition active:scale-[0.98] ${
+                loggingOut
+                  ? "bg-[#84CC16]/70 cursor-wait"
+                  : "bg-[#84CC16] hover:bg-[#76b514]"
+              }`}
             >
-              <FiLogOut className="h-4 w-4" />
-              Logout
+              {loggingOut ? (
+                <>
+                  <svg
+                    className="h-4 w-4 animate-spin"
+                    viewBox="0 0 24 24"
+                    fill="none"
+                    aria-hidden="true"
+                  >
+                    <circle
+                      cx="12"
+                      cy="12"
+                      r="10"
+                      stroke="currentColor"
+                      strokeWidth="4"
+                      className="opacity-25"
+                    />
+                    <path
+                      d="M4 12a8 8 0 018-8v4a4 4 0 00-4 4H4z"
+                      fill="currentColor"
+                      className="opacity-75"
+                    />
+                  </svg>
+                  Logging out…
+                </>
+              ) : (
+                <>
+                  <FiLogOut className="h-4 w-4" />
+                  Logout
+                </>
+              )}
             </button>
 
-            {/* Hidden backend logout trigger */}
+            {/* Hidden backend logout trigger (if your component uses data-logout) */}
             <div className="hidden">
               <LogoutButton />
             </div>
@@ -274,6 +337,13 @@ export default function ProfileClient({ initialMe }) {
             >
               <FiFileText className="h-4 w-4" />
               Terms & Conditions
+            </Link>
+            <Link
+              href="/acknowledgement"
+              className="inline-flex items-center justify-center gap-2 rounded-lg border border-slate-200 bg-white px-4 py-2.5 text-sm font-medium text-slate-700 hover:bg-slate-50 hover:text-[#84CC16] transition"
+            >
+              <FiMapPin className="h-4 w-4" />
+              Acknowledgement
             </Link>
           </div>
         </div>

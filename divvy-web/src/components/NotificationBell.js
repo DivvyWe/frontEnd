@@ -98,24 +98,23 @@ export default function NotificationBell({ me }) {
     };
   }, [open]);
 
-  // 🚫 Body scroll lock on mobile sheet
+  // 🚫 Body scroll lock on mobile sheet (only lock <body>, not <html>)
   useEffect(() => {
     const isMobile =
       typeof window !== "undefined" &&
       window.matchMedia &&
       window.matchMedia("(max-width: 767px)").matches;
-    if (open && isMobile) {
-      const html = document.documentElement;
-      const body = document.body;
-      const prevHtml = html.style.overflow;
-      const prevBody = body.style.overflow;
-      html.style.overflow = "hidden";
-      body.style.overflow = "hidden";
-      return () => {
-        html.style.overflow = prevHtml;
-        body.style.overflow = prevBody;
-      };
-    }
+
+    if (!isMobile) return;
+    if (!open) return;
+
+    const body = document.body;
+    const prevOverflow = body.style.overflow;
+    body.style.overflow = "hidden";
+
+    return () => {
+      body.style.overflow = prevOverflow;
+    };
   }, [open]);
 
   const unreadBadge = useMemo(() => {
@@ -269,7 +268,7 @@ export default function NotificationBell({ me }) {
 
           {/* Sheet */}
           <div
-            className="absolute inset-x-0 top-0 bottom-0 bg-white shadow-2xl flex flex-col"
+            className="absolute inset-x-0 top-0 bottom-0 bg-white shadow-2xl flex flex-col min-h-0 overflow-hidden overscroll-none"
             style={{
               // Use dynamic viewport to avoid URL bar issues on Android S24, iOS 15+
               height: "100dvh",
@@ -305,8 +304,9 @@ export default function NotificationBell({ me }) {
 
             {/* Body (scrollable) */}
             <div
-              className="flex-1 overflow-y-auto overscroll-contain"
+              className="flex-1 min-h-0 overflow-y-auto overscroll-contain [touch-action:pan-y]"
               style={{
+                WebkitOverflowScrolling: "touch",
                 // keep above any bottom nav (AppNav) if present
                 paddingBottom: "88px",
               }}
