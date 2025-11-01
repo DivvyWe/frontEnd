@@ -28,11 +28,37 @@ function isPhoneDevice() {
   return (uaDataMobile || isPhoneUA) && (coarse || phoneSized) && !isIPadLike;
 }
 
+/** iOS + browser helpers */
+function isIOS() {
+  if (typeof navigator === "undefined") return false;
+  return /iPhone|iPad|iPod/i.test(navigator.userAgent || "");
+}
+function isSafariOnIOS() {
+  if (!isIOS()) return false;
+  const ua = navigator.userAgent || "";
+  // Safari on iOS has "Safari" but not the other branded tokens
+  const isSafari = /Safari/i.test(ua) && !/CriOS|FxiOS|EdgiOS|OPiOS/i.test(ua);
+  return isSafari;
+}
+function isIOSInAppBrowser() {
+  if (!isIOS()) return false;
+  const ua = navigator.userAgent || "";
+  // Common in-app browser markers or non-Safari mobile browsers
+  const inApp =
+    /(FBAN|FBAV|Instagram|Line|MicroMessenger|WeChat|Twitter|TikTok|Snapchat|Pinterest)/i.test(
+      ua
+    );
+  const isNotSafari =
+    !/Safari/i.test(ua) || /CriOS|FxiOS|EdgiOS|OPiOS/i.test(ua) || inApp;
+  return isNotSafari;
+}
+
 export default function InstallBanner() {
   const [visible, setVisible] = useState(false);
   const [mode, setMode] = useState("android"); // 'android' | 'ios'
   const [isPhone, setIsPhone] = useState(false);
   const [androidReady, setAndroidReady] = useState(false);
+  const [showIOSHelp, setShowIOSHelp] = useState(false);
   const delayedShowTimer = useRef(null);
 
   // minimal global (SW + event wiring is in app/layout.js)
@@ -42,14 +68,21 @@ export default function InstallBanner() {
       canInstall: false,
       deferredPrompt: null,
       installed: false, // ignored by this component (we always show)
+      isIOS: isIOS(),
     };
   }, []);
 
   const closeBanner = useCallback(() => {
     setVisible(false); // no localStorage suppression; just close for now
+    setShowIOSHelp(false);
   }, []);
 
   const onInstallClick = useCallback(async () => {
+    // iOS: open help panel instead of trying to install
+    if (!/android/i.test(mode)) {
+      setShowIOSHelp((v) => !v);
+      return;
+    }
     // Android native prompt if available
     if (mode === "android" && window?.__pwa?.deferredPrompt) {
       const dp = window.__pwa.deferredPrompt;
@@ -65,7 +98,6 @@ export default function InstallBanner() {
       setVisible(false);
       return;
     }
-    // iOS: no native prompt — close after user sees the hint
     setVisible(false);
   }, [mode]);
 
@@ -113,6 +145,7 @@ export default function InstallBanner() {
     const onInstalled = () => {
       // We intentionally do NOT hide permanently; still just close this instance
       setVisible(false);
+      setShowIOSHelp(false);
     };
     const onIOSTip = () => {
       showWithDelay("ios");
@@ -126,8 +159,6 @@ export default function InstallBanner() {
       setAndroidReady(preferAndroid);
       showWithDelay(preferAndroid ? "android" : "ios");
     };
-
-    // We DO NOT hide when display-mode switches to standalone; user asked to always show.
 
     window.addEventListener("pwa:can-install", onCanInstall);
     window.addEventListener("pwa:installed", onInstalled);
@@ -149,6 +180,8 @@ export default function InstallBanner() {
   if (!isPhone || !visible) return null;
 
   const isAndroid = mode === "android";
+  const iosInApp = !isAndroid && isIOSInAppBrowser();
+  const iosSafari = !isAndroid && isSafariOnIOS();
 
   return (
     <div
@@ -173,18 +206,27 @@ export default function InstallBanner() {
 
           <div className="min-w-0 flex-1">
             <p className="text-sm font-semibold text-slate-900">
-              Install the app
+              {isAndroid ? "Install the app" : "Add to Home Screen"}
             </p>
-            <p className="mt-0.5 text-xs text-slate-600">
-              {isAndroid
-                ? "Add Divsez to your home screen."
-                : "Open Share → Add to Home Screen to install Divsez."}
-            </p>
-            {!isAndroid && (
-              <p className="mt-1 text-[11px] text-slate-500">
-                Tip: In Safari, tap the <b>Share</b> icon, then choose{" "}
-                <b>Add to Home Screen</b>.
+
+            {isAndroid ? (
+              <p className="mt-0.5 text-xs text-slate-600">
+                Add Divsez to your home screen.
               </p>
+            ) : (
+              <>
+                <p className="mt-0.5 text-xs text-slate-600">
+                  {iosInApp
+                    ? "Open this page in Safari to install."
+                    : "Open Share → Add to Home Screen to install Divsez."}
+                </p>
+                {!iosInApp && (
+                  <p className="mt-1 text-[11px] text-slate-500">
+                    Tip: In Safari, tap the <b>Share</b> icon, then choose{" "}
+                    <b>Add to Home Screen</b>.
+                  </p>
+                )}
+              </>
             )}
           </div>
 
@@ -198,13 +240,63 @@ export default function InstallBanner() {
           </button>
         </div>
 
+        {/* iOS helper panel */}
+        {!isAndroid && showIOSHelp && (
+          <div className="mt-3 rounded-lg border border-slate-200 bg-slate-50 p-3 text-xs text-slate-700">
+            {iosInApp ? (
+              <>
+                <p className="font-semibold">Open in Safari first</p>
+                <ol className="mt-1 list-decimal pl-5 space-y-1">
+                  <li>Tap the menu in this app’s browser.</li>
+                  <li>
+                    Choose <b>Open in Safari</b>.
+                  </li>
+                  <li>
+                    In Safari: tap <b>Share</b> → <b>Add to Home Screen</b>.
+                  </li>
+                </ol>
+              </>
+            ) : (
+              <>
+                <p className="font-semibold">How to install on iPhone</p>
+                <ol className="mt-1 list-decimal pl-5 space-y-1">
+                  <li>
+                    Tap the <b>Share</b> icon in Safari.
+                  </li>
+                  <li>
+                    Select <b>Add to Home Screen</b>.
+                  </li>
+                  <li>
+                    Confirm the name and tap <b>Add</b>.
+                  </li>
+                </ol>
+                <p className="mt-2 text-[11px] text-slate-500">
+                  Can’t see the icon? iOS may place it in <b>App Library</b>. Go
+                  to Settings → Home Screen → <i>Newly Downloaded Apps</i> →
+                  <b> Add to Home Screen</b>.
+                </p>
+              </>
+            )}
+          </div>
+        )}
+
         <div className="mt-3 flex items-center justify-end gap-2">
-          {/* Keep the label but without persistence */}
+          {/* Toggle help on iOS, normal close on Android */}
           <button
-            onClick={closeBanner}
-            className="rounded-lg px-3 py-2 text-xs font-medium text-slate-500 hover:bg-slate-50"
+            onClick={() => {
+              if (isAndroid) {
+                closeBanner();
+              } else {
+                setShowIOSHelp((v) => !v);
+              }
+            }}
+            className="rounded-lg px-3 py-2 text-xs font-medium text-slate-500 hover:bg-slate-100"
           >
-            Don’t show again
+            {isAndroid
+              ? "Don’t show again"
+              : showIOSHelp
+              ? "Hide steps"
+              : "How to install"}
           </button>
 
           <button
@@ -217,12 +309,41 @@ export default function InstallBanner() {
                 : "bg-[#84CC16]",
             ].join(" ")}
             title={
-              isAndroid && !androidReady ? "Preparing install…" : "Install app"
+              isAndroid && !androidReady
+                ? "Preparing install…"
+                : isAndroid
+                ? "Install app"
+                : iosInApp
+                ? "Open in Safari to install"
+                : "Add to Home Screen steps"
             }
           >
-            {isAndroid && !androidReady ? "Preparing…" : "Install app"}
+            {isAndroid
+              ? isAndroid && !androidReady
+                ? "Preparing…"
+                : "Install app"
+              : iosInApp
+              ? "Open in Safari"
+              : showIOSHelp
+              ? "Close help"
+              : "How to install"}
           </button>
         </div>
+
+        {/* Optional micro-nudge if in-app browser */}
+        {!isAndroid && iosInApp && !showIOSHelp && (
+          <div className="mt-2 text-[11px] text-slate-500">
+            You’re in an in-app browser. Tap the menu and choose{" "}
+            <b>Open in Safari</b> to install.
+          </div>
+        )}
+
+        {/* Optional micro-nudge if Safari but not showing steps yet */}
+        {!isAndroid && iosSafari && !showIOSHelp && (
+          <div className="mt-2 text-[11px] text-slate-500">
+            In Safari: <b>Share</b> → <b>Add to Home Screen</b>.
+          </div>
+        )}
       </div>
     </div>
   );
