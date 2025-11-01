@@ -9,14 +9,44 @@ import { useEffect, useRef, useState, useCallback } from "react";
  * - "Don't show again" → persists a "never show" flag in localStorage; banner will never show again.
  * - Android: uses beforeinstallprompt via window.__pwa.deferredPrompt (set by layout.js).
  * - iOS: shows a help tip with instructions: Share → Add to Home Screen.
+ * - Adds an iOS fallback: if events are missed, auto-open after a short delay.
  */
 
 const NEVER_SHOW_KEY = "pwa-never-show"; // "1" means never show again (persisted)
 const SHOW_DELAY_MS = 250;
+const IOS_FALLBACK_DELAY_MS = 700; // try after React mounts even if events raced
 
+function isInStandalone() {
+  try {
+    return (
+      (window.matchMedia &&
+        window.matchMedia("(display-mode: standalone)").matches) ||
+      window.navigator.standalone === true
+    );
+  } catch {
+    return false;
+  }
+}
+
+// iOS device detection (covers Safari/Chrome/Edge/Firefox on iOS; iPadOS "Macintosh" UA with touch)
+function isIOSDevice() {
+  if (typeof window === "undefined") return false;
+  const ua = navigator.userAgent || "";
+  const iPhoneOrPod = /iPhone|iPod/i.test(ua);
+  const iPadLike = /iPad|Macintosh/i.test(ua) && "ontouchend" in window;
+  return iPhoneOrPod || iPadLike;
+}
+
+// True Safari (has install path). Other iOS browsers usually can't install.
+function isTrueSafari() {
+  if (typeof window === "undefined") return false;
+  const ua = navigator.userAgent || "";
+  return /Safari/i.test(ua) && !/CriOS|FxiOS|EdgiOS|OPiOS|DuckDuckGo/i.test(ua);
+}
+
+// Phone-ish device filter (keeps your size/pointer heuristics)
 function isPhoneDevice() {
   if (typeof window === "undefined") return false;
-
   const ua = (navigator.userAgent || "").toLowerCase();
   const uaDataMobile = navigator.userAgentData?.mobile === true;
 
@@ -38,23 +68,24 @@ export default function InstallBanner() {
   const [isAndroid, setIsAndroid] = useState(false);
   const [androidReady, setAndroidReady] = useState(false);
   const [isPhone, setIsPhone] = useState(false);
-  const delayTimer = useRef(null);
+  const [ios, setIOS] = useState(false);
+  const [trueSafari, setTrueSafari] = useState(false);
 
-  const isStandaloneNow = () =>
-    typeof window !== "undefined" &&
-    (window.matchMedia?.("(display-mode: standalone)").matches ||
-      window.navigator.standalone === true);
+  const delayTimer = useRef(null);
+  const iosFallbackTimer = useRef(null);
+  const sessionClosedRef = useRef(false); // prevent re-open loops in this session
 
   const neverShow = () => {
     try {
       localStorage.setItem(NEVER_SHOW_KEY, "1");
     } catch {}
     setVisible(false);
+    sessionClosedRef.current = true;
   };
 
   const onClose = () => {
-    // session-only hide; do not persist
     setVisible(false);
+    sessionClosedRef.current = true; // don't reshow automatically this session
   };
 
   const onInstallClick = useCallback(async () => {
@@ -63,63 +94,74 @@ export default function InstallBanner() {
       const dp = window.__pwa.deferredPrompt;
       dp.prompt();
       try {
-        await dp.userChoice; // { outcome: 'accepted' | 'dismissed', platform: ... }
+        await dp.userChoice; // { outcome, platform }
       } catch {}
       // Either way, hide for now (no persistence)
       setVisible(false);
+      sessionClosedRef.current = true;
       // Clear prompt so it doesn't re-trigger without a page lifecycle
       window.__pwa.deferredPrompt = null;
       setAndroidReady(false);
       return;
     }
-    // iOS: there is no programmatic install; this just acknowledges the tip
+    // iOS: just acknowledge the tip
     setVisible(false);
+    sessionClosedRef.current = true;
   }, [isAndroid]);
 
-  // Main visibility logic
+  // Helper to open with small delay (for smoothness)
+  const showWithDelay = useCallback((android) => {
+    if (delayTimer.current) clearTimeout(delayTimer.current);
+    setIsAndroid(!!android);
+    delayTimer.current = setTimeout(() => {
+      if (!sessionClosedRef.current) setVisible(true);
+    }, SHOW_DELAY_MS);
+  }, []);
+
+  // Main effects
   useEffect(() => {
     if (typeof window === "undefined") return;
 
-    setIsPhone(isPhoneDevice());
-    setIsAndroid(/android/i.test(navigator.userAgent));
+    const phone = isPhoneDevice();
+    const onIOS = isIOSDevice();
+
+    setIsPhone(phone);
+    setIOS(onIOS);
+    setTrueSafari(isTrueSafari());
 
     // If user chose "never show", bail out forever
     try {
       if (localStorage.getItem(NEVER_SHOW_KEY) === "1") return;
     } catch {}
 
-    if (!isPhoneDevice()) return;
-    if (isStandaloneNow()) return; // already installed → do not show
+    if (!phone) return;
+    if (isInStandalone()) return; // already installed → do not show
 
-    // Event handlers fired by layout.js
-    const showWithDelay = (android) => {
-      if (delayTimer.current) clearTimeout(delayTimer.current);
-      setIsAndroid(!!android);
-      delayTimer.current = setTimeout(() => setVisible(true), SHOW_DELAY_MS);
-    };
+    // Detect Android vs iOS (for button text & flow)
+    setIsAndroid(/android/i.test(navigator.userAgent));
 
+    // Listen to events fired by layout.js
     const onCanInstall = () => {
-      // Android path: we have a deferredPrompt ready
       setAndroidReady(true);
-      showWithDelay(true);
+      showWithDelay(true); // Android path: beforeinstallprompt ready
     };
 
     const onIOSTip = () => {
-      // iOS path: manual instructions
-      // (respect never-show, but not X/close)
+      // Respect "never-show" but not session close
       try {
         if (localStorage.getItem(NEVER_SHOW_KEY) === "1") return;
       } catch {}
-      showWithDelay(false);
+      if (sessionClosedRef.current) return;
+      showWithDelay(false); // iOS path: manual instructions
     };
 
     const onInstalled = () => setVisible(false);
 
-    // Manual trigger (e.g., window.openInstallBanner()), still respect "never show"
     const onOpenBanner = () => {
       try {
         if (localStorage.getItem(NEVER_SHOW_KEY) === "1") return;
       } catch {}
+      if (sessionClosedRef.current) return;
       const preferAndroid = !!(
         window.__pwa?.canInstall && window.__pwa?.deferredPrompt
       );
@@ -143,17 +185,57 @@ export default function InstallBanner() {
       showWithDelay(true);
     }
 
+    // --- iOS fallback ---
+    // Some iOS contexts/in-app browsers may suppress or delay our custom event.
+    // As a safety net, if we’re on iOS and not installed, auto-open once.
+    if (onIOS && !isInStandalone()) {
+      if (iosFallbackTimer.current) clearTimeout(iosFallbackTimer.current);
+      iosFallbackTimer.current = setTimeout(() => {
+        try {
+          if (localStorage.getItem(NEVER_SHOW_KEY) === "1") return;
+        } catch {}
+        if (sessionClosedRef.current) return;
+        // If no Android prompt and we haven't become visible yet, open the iOS tip
+        if (!window.__pwa?.deferredPrompt && !visible) {
+          setIsAndroid(false);
+          setVisible(true);
+        }
+      }, IOS_FALLBACK_DELAY_MS);
+    }
+
+    // Re-check when tab becomes visible (helps after back/forward)
+    const onVis = () => {
+      if (document.hidden) return;
+      if (sessionClosedRef.current) return;
+      if (onIOS && !isInStandalone()) {
+        try {
+          if (localStorage.getItem(NEVER_SHOW_KEY) === "1") return;
+        } catch {}
+        // Open the tip if we’re still not visible
+        if (!visible) {
+          setIsAndroid(false);
+          setVisible(true);
+        }
+      }
+    };
+    document.addEventListener("visibilitychange", onVis);
+
     return () => {
       window.removeEventListener("pwa:can-install", onCanInstall);
       window.removeEventListener("pwa:ios-tip", onIOSTip);
       window.removeEventListener("pwa:installed", onInstalled);
       window.removeEventListener("pwa:open-banner", onOpenBanner);
       mq?.removeEventListener?.("change", onDisplayModeChange);
+      document.removeEventListener("visibilitychange", onVis);
       if (delayTimer.current) clearTimeout(delayTimer.current);
+      if (iosFallbackTimer.current) clearTimeout(iosFallbackTimer.current);
     };
-  }, []);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [showWithDelay, visible]);
 
   if (!isPhone || !visible) return null;
+
+  const showSafariHint = ios && !trueSafari; // iOS but not true Safari → in-app/alt browser
 
   return (
     <div
@@ -167,6 +249,7 @@ export default function InstallBanner() {
       >
         <div className="flex items-start gap-3">
           <div className="h-10 w-10 shrink-0 overflow-hidden rounded-xl bg-slate-100">
+            {/* Use <img> for widest browser support */}
             <img
               src="/icons/icon-192.png"
               alt="App icon"
@@ -204,6 +287,11 @@ export default function InstallBanner() {
                     Screen.
                   </li>
                 </ol>
+                {showSafariHint && (
+                  <p className="mt-1 text-[11px] text-amber-700">
+                    Tip: Open this page in <b>Safari</b> to install.
+                  </p>
+                )}
               </>
             )}
           </div>
