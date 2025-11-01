@@ -110,6 +110,8 @@ export default function RootLayout({ children }) {
         <Script id="pwa-install-hooks" strategy="afterInteractive">
           {`
             (function () {
+              var NEVER_SHOW_KEY = 'pwa-never-show';
+
               function isPhoneDevice() {
                 var ua = (navigator.userAgent || "").toLowerCase();
                 var uaDataMobile = navigator.userAgentData && navigator.userAgentData.mobile === true;
@@ -128,13 +130,12 @@ export default function RootLayout({ children }) {
                 canInstall: false,
                 installed: false,
                 isIOS: /iphone|ipod/i.test(navigator.userAgent),
-                isInStandalone: window.matchMedia('(display-mode: standalone)').matches
-                  || (window.navigator.standalone === true)
               };
 
-              // Android Chrome
+              // Android Chrome (native install prompt)
               window.addEventListener('beforeinstallprompt', function (e) {
-                e.preventDefault(); // prevent mini-infobar
+                try { if (localStorage.getItem(NEVER_SHOW_KEY) === '1') return; } catch (err) {}
+                e.preventDefault(); // suppress mini-infobar
                 window.__pwa.deferredPrompt = e;
                 window.__pwa.canInstall = true;
                 window.dispatchEvent(new CustomEvent('pwa:can-install'));
@@ -146,15 +147,28 @@ export default function RootLayout({ children }) {
                 window.dispatchEvent(new CustomEvent('pwa:installed'));
               });
 
-              // iOS tip (no beforeinstallprompt)
+              // iOS tip (no beforeinstallprompt on Safari)
               try {
-                var alreadyInstalled = localStorage.getItem('pwa-installed') === '1';
-                var suppressedUntil = parseInt(localStorage.getItem('pwa-ios-suppress-until') || '0', 10);
-                var now = Date.now();
-                if (!alreadyInstalled && window.__pwa.isIOS && !window.__pwa.isInStandalone && now > suppressedUntil) {
-                  window.dispatchEvent(new CustomEvent('pwa:ios-tip'));
+                var neverShow = localStorage.getItem(NEVER_SHOW_KEY) === '1';
+                if (!neverShow) {
+                  var alreadyInstalled = localStorage.getItem('pwa-installed') === '1';
+                  var isInStandalone =
+                    (window.matchMedia && window.matchMedia('(display-mode: standalone)').matches) ||
+                    (window.navigator.standalone === true);
+
+                  if (!alreadyInstalled && window.__pwa.isIOS && !isInStandalone) {
+                    // Let InstallBanner render the "Share → Add to Home Screen" guidance.
+                    window.dispatchEvent(new CustomEvent('pwa:ios-tip'));
+                  }
                 }
               } catch (e) {}
+
+              // Optional: manual trigger (still respects NEVER_SHOW_KEY)
+              window.openInstallBanner = function() {
+                try { if (localStorage.getItem(NEVER_SHOW_KEY) === '1') return; } catch (e) {}
+                var preferAndroid = !!(window.__pwa && window.__pwa.canInstall && window.__pwa.deferredPrompt);
+                window.dispatchEvent(new CustomEvent('pwa:open-banner', { detail: { preferAndroid: preferAndroid } }));
+              };
             })();
           `}
         </Script>
