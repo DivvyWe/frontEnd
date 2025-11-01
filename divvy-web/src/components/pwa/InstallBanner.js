@@ -46,29 +46,22 @@ export default function InstallBanner() {
     };
   }, []);
 
-  const closeBanner = useCallback(() => {
-    setVisible(false); // no localStorage suppression; just close for now
-  }, []);
+  const closeBanner = useCallback(() => setVisible(false), []);
 
-  const onInstallClick = useCallback(async () => {
-    // Android native prompt if available
-    if (mode === "android" && window?.__pwa?.deferredPrompt) {
-      const dp = window.__pwa.deferredPrompt;
-      dp.prompt();
-      try {
-        await dp.userChoice; // no persistence either way
-      } catch {
-        // ignore
-      } finally {
-        window.__pwa.deferredPrompt = null;
-        setAndroidReady(false);
-      }
+  const onAndroidInstall = useCallback(async () => {
+    if (!window?.__pwa?.deferredPrompt) return;
+    const dp = window.__pwa.deferredPrompt;
+    dp.prompt();
+    try {
+      await dp.userChoice;
+    } catch {
+      // ignore
+    } finally {
+      window.__pwa.deferredPrompt = null;
+      setAndroidReady(false);
       setVisible(false);
-      return;
     }
-    // iOS has no native prompt — we now show instructions in the banner itself
-    setVisible(false);
-  }, [mode]);
+  }, []);
 
   // Cleanup pending timers
   useEffect(
@@ -111,13 +104,8 @@ export default function InstallBanner() {
       setAndroidReady(true);
       showWithDelay("android");
     };
-    const onInstalled = () => {
-      // We intentionally do NOT hide permanently; still just close this instance
-      setVisible(false);
-    };
-    const onIOSTip = () => {
-      showWithDelay("ios");
-    };
+    const onInstalled = () => setVisible(false);
+    const onIOSTip = () => showWithDelay("ios");
 
     // Allow manual open from anywhere
     const onOpenBanner = () => {
@@ -127,8 +115,6 @@ export default function InstallBanner() {
       setAndroidReady(preferAndroid);
       showWithDelay(preferAndroid ? "android" : "ios");
     };
-
-    // We DO NOT hide when display-mode switches to standalone; user asked to always show.
 
     window.addEventListener("pwa:can-install", onCanInstall);
     window.addEventListener("pwa:installed", onInstalled);
@@ -185,25 +171,25 @@ export default function InstallBanner() {
             ) : (
               <>
                 <p className="text-sm font-semibold text-slate-900">
-                  Add to Home Screen (iPhone)
+                  Add Divsez to Home Screen
                 </p>
-                <ol className="mt-1 list-decimal pl-5 text-xs text-slate-700 space-y-1">
-                  <li>
-                    Tap the <b>Share</b> icon{" "}
-                    <span className="text-slate-500">(bottom bar)</span> in{" "}
-                    <b>Safari or Chrome</b>.
-                  </li>
-                  <li>
-                    Choose <b>Add to Home Screen</b>.
-                  </li>
-                  <li>
-                    Confirm to add <b>Divsez</b> to your Home Screen.
-                  </li>
-                </ol>
-                <p className="mt-2 text-[11px] text-slate-500">
-                  If you can’t see it, iOS may place it in your{" "}
-                  <b>App Library</b>.
-                </p>
+                <div className="mt-1 text-xs text-slate-700">
+                  <ol className="list-decimal pl-5 space-y-1">
+                    <li>
+                      Tap the <b>Share</b> icon in your browser.
+                    </li>
+                    <li>
+                      Choose <b>Add to Home Screen</b>.
+                    </li>
+                    <li>
+                      Confirm to add <b>Divsez</b>.
+                    </li>
+                  </ol>
+                  <p className="mt-2 text-[11px] text-slate-500">
+                    If the icon doesn’t appear, iOS may place it in the{" "}
+                    <b>App Library</b>.
+                  </p>
+                </div>
               </>
             )}
           </div>
@@ -222,14 +208,14 @@ export default function InstallBanner() {
         <div className="mt-3 flex items-center justify-end gap-2">
           <button
             onClick={closeBanner}
-            className="rounded-lg px-3 py-2 text-xs font-medium text-slate-500 hover:bg-slate-50"
+            className="rounded-lg px-3 py-2 text-xs font-medium text-slate-600 hover:bg-slate-50"
           >
             {isAndroid ? "Later" : "Got it"}
           </button>
 
           {isAndroid && (
             <button
-              onClick={onInstallClick}
+              onClick={onAndroidInstall}
               disabled={!androidReady}
               className={[
                 "rounded-lg px-3 py-2 text-xs font-semibold text-white hover:brightness-95",
