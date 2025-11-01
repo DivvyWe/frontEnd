@@ -283,15 +283,15 @@ export default function InstallBanner() {
                     Scroll if needed, then tap <b>Add to Home Screen</b>.
                   </li>
                   <li>
-                    Tap <b>Add</b> — a Divsez icon will appear on your Home
+                    Tap <b>Add</b>, a Divsez icon will appear on your Home
                     Screen.
                   </li>
                 </ol>
-                {showSafariHint && (
+                {/* {showSafariHint && (
                   <p className="mt-1 text-[11px] text-amber-700">
                     Tip: Open this page in <b>Safari</b> to install.
                   </p>
-                )}
+                )} */}
               </>
             )}
           </div>
