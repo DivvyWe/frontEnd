@@ -126,13 +126,13 @@ export default function RootLayout({ children }) {
               window.__pwa = window.__pwa || {
                 deferredPrompt: null,
                 canInstall: false,
-                installed: false, // we won't persist this anymore
+                installed: false,
                 isIOS: /iphone|ipod/i.test(navigator.userAgent),
                 isInStandalone: window.matchMedia('(display-mode: standalone)').matches
                   || (window.navigator.standalone === true)
               };
 
-              // Android Chrome: capture the native prompt event
+              // Android Chrome
               window.addEventListener('beforeinstallprompt', function (e) {
                 e.preventDefault(); // prevent mini-infobar
                 window.__pwa.deferredPrompt = e;
@@ -140,20 +140,21 @@ export default function RootLayout({ children }) {
                 window.dispatchEvent(new CustomEvent('pwa:can-install'));
               });
 
-              // App installed (Android). We no longer persist anything.
               window.addEventListener('appinstalled', function () {
                 window.__pwa.installed = true;
+                try { localStorage.setItem('pwa-installed', '1'); } catch (e) {}
                 window.dispatchEvent(new CustomEvent('pwa:installed'));
               });
 
-              // iOS tip (no beforeinstallprompt). Always fire the tip on iOS phones.
-              // No localStorage checks; no suppression; show every time.
-              if (window.__pwa.isIOS) {
-                // slight delay to ensure components are mounted
-                setTimeout(function(){
+              // iOS tip (no beforeinstallprompt)
+              try {
+                var alreadyInstalled = localStorage.getItem('pwa-installed') === '1';
+                var suppressedUntil = parseInt(localStorage.getItem('pwa-ios-suppress-until') || '0', 10);
+                var now = Date.now();
+                if (!alreadyInstalled && window.__pwa.isIOS && !window.__pwa.isInStandalone && now > suppressedUntil) {
                   window.dispatchEvent(new CustomEvent('pwa:ios-tip'));
-                }, 0);
-              }
+                }
+              } catch (e) {}
             })();
           `}
         </Script>
