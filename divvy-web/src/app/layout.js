@@ -3,7 +3,7 @@ import { Geist, Geist_Mono } from "next/font/google";
 import Script from "next/script";
 import "./globals.css";
 import PushClickHandler from "@/components/push/PushClickHandler";
-import InstallBanner from "@/components/pwa/InstallBanner"; // phone-only “Install app” popup
+import InstallBanner from "@/components/pwa/InstallBanner";
 
 const geistSans = Geist({
   variable: "--font-geist-sans",
@@ -21,20 +21,17 @@ export const metadata = {
   description: "Easily split and track group expenses with friends.",
   manifest: "/manifest.webmanifest",
   icons: {
-    icon: "/icons/favicon-16.png", // small favicon
-    apple: "/icons/apple-touch-icon.png", // iOS homescreen icon
+    icon: "/icons/favicon-16.png",
+    apple: "/icons/apple-touch-icon.png",
   },
   appleWebApp: {
     capable: true,
     statusBarStyle: "default",
     title: "Divsez",
   },
-  other: {
-    "format-detection": "telephone=no",
-  },
+  other: { "format-detection": "telephone=no" },
 };
 
-// Next 15 requires themeColor in viewport (or generateViewport)
 export const viewport = {
   themeColor: [
     { media: "(prefers-color-scheme: light)", color: "#84CC16" },
@@ -51,7 +48,7 @@ export default function RootLayout({ children }) {
       >
         <PushClickHandler />
 
-        {/* ---------------- Service Worker (HTTPS or localhost) ---------------- */}
+        {/* ------------- Service Worker (HTTPS or localhost) ------------- */}
         <Script id="sw-register" strategy="afterInteractive">
           {`
             (function(){
@@ -59,44 +56,36 @@ export default function RootLayout({ children }) {
 
               var isLocal = location.hostname === 'localhost' || location.hostname === '127.0.0.1';
               var isHttps = location.protocol === 'https:';
-              if (!isLocal && !isHttps) return; // require HTTPS unless localhost
+              if (!isLocal && !isHttps) return;
 
               navigator.serviceWorker.register('/sw.js', { type: 'module', scope: '/' })
                 .then(function(reg){
                   window.__swReg = reg;
 
-                  // If a new SW is waiting immediately (e.g., after reload)
                   if (reg.waiting) {
                     window.dispatchEvent(new CustomEvent('sw:update-available', { detail: { reg } }));
                   }
 
-                  // Track install lifecycle
                   reg.addEventListener('updatefound', function () {
                     var sw = reg.installing;
                     if (!sw) return;
                     sw.addEventListener('statechange', function () {
                       if (sw.state === 'installed') {
                         if (navigator.serviceWorker.controller) {
-                          // Updated SW installed, waiting to activate
                           window.dispatchEvent(new CustomEvent('sw:update-available', { detail: { reg } }));
                         } else {
-                          // First install
                           window.dispatchEvent(new CustomEvent('sw:ready', { detail: { reg } }));
                         }
                       }
                     });
                   });
 
-                  // When the controller changes (page now controlled by the new SW)
                   navigator.serviceWorker.addEventListener('controllerchange', function(){
                     window.dispatchEvent(new CustomEvent('sw:updated'));
                   });
 
-                  // Allow UI to request skipWaiting
                   window.addEventListener('sw:skip-waiting', function(){
-                    if (reg.waiting) {
-                      reg.waiting.postMessage({ type: 'SKIP_WAITING' });
-                    }
+                    if (reg.waiting) reg.waiting.postMessage({ type: 'SKIP_WAITING' });
                   });
                 })
                 .catch(function (err) {
@@ -112,68 +101,87 @@ export default function RootLayout({ children }) {
             (function () {
               var NEVER_SHOW_KEY = 'pwa-never-show';
 
-              function isPhoneDevice() {
-                var ua = (navigator.userAgent || "").toLowerCase();
-                var uaDataMobile = navigator.userAgentData && navigator.userAgentData.mobile === true;
-                var isPhoneUA = /(android.*mobile|iphone|ipod|windows phone|blackberry|iemobile)/i.test(ua);
-                var isIPadLike = (/ipad|macintosh/i.test(navigator.userAgent) && 'ontouchend' in window);
-                var coarse = window.matchMedia && window.matchMedia('(pointer: coarse)').matches;
-                var maxSide = Math.min(screen.width || 0, screen.height || 0);
-                var phoneSized = maxSide > 0 && maxSide <= 768; // include big phones / foldables
-                return (uaDataMobile || isPhoneUA) && (coarse || phoneSized) && !isIPadLike;
+              function isiPhone() {
+                return /iphone|ipod/i.test(navigator.userAgent || '');
+              }
+              function isPhoneLike() {
+                // Keep it simple and permissive; iOS is picky and we only need iPhone here.
+                var ua = navigator.userAgent || '';
+                var mobileHints = /(android|iphone|ipod|windows phone|blackberry|iemobile)/i.test(ua);
+                // Exclude iPad (often "Macintosh" + touch) from iPhone banner
+                var isIPadLike = /ipad|macintosh/i.test(ua) && 'ontouchend' in window;
+                return mobileHints && !isIPadLike;
+              }
+              function isStandalone() {
+                try {
+                  return (window.matchMedia && window.matchMedia('(display-mode: standalone)').matches) || (window.navigator.standalone === true);
+                } catch { return false; }
+              }
+              function neverShow() {
+                try { return localStorage.getItem(NEVER_SHOW_KEY) === '1'; } catch { return false; }
               }
 
-              if (!isPhoneDevice()) return;
+              if (!isPhoneLike()) {
+                console.debug('[PWA] skip hooks: not phone-like UA');
+                return;
+              }
 
               window.__pwa = window.__pwa || {
                 deferredPrompt: null,
                 canInstall: false,
                 installed: false,
-                isIOS: /iphone|ipod/i.test(navigator.userAgent),
+                isIOS: isiPhone(),
               };
 
-              // Android Chrome (native install prompt)
+              // --- Android native flow ---
               window.addEventListener('beforeinstallprompt', function (e) {
-                try { if (localStorage.getItem(NEVER_SHOW_KEY) === '1') return; } catch (err) {}
-                e.preventDefault(); // suppress mini-infobar
+                if (neverShow()) { console.debug('[PWA] NEVER_SHOW set — suppress Android prompt'); return; }
+                e.preventDefault();
                 window.__pwa.deferredPrompt = e;
                 window.__pwa.canInstall = true;
+                console.debug('[PWA] beforeinstallprompt captured');
                 window.dispatchEvent(new CustomEvent('pwa:can-install'));
               });
 
               window.addEventListener('appinstalled', function () {
                 window.__pwa.installed = true;
-                try { localStorage.setItem('pwa-installed', '1'); } catch (e) {}
+                try { localStorage.setItem('pwa-installed', '1'); } catch {}
+                console.debug('[PWA] appinstalled');
                 window.dispatchEvent(new CustomEvent('pwa:installed'));
               });
 
-              // iOS tip (no beforeinstallprompt on Safari)
-              try {
-                var neverShow = localStorage.getItem(NEVER_SHOW_KEY) === '1';
-                if (!neverShow) {
-                  var alreadyInstalled = localStorage.getItem('pwa-installed') === '1';
-                  var isInStandalone =
-                    (window.matchMedia && window.matchMedia('(display-mode: standalone)').matches) ||
-                    (window.navigator.standalone === true);
+              // --- iPhone manual tip (no beforeinstallprompt) ---
+              function maybeDispatchIOSTip(reason) {
+                if (!window.__pwa.isIOS) { console.debug('[PWA] not iOS, reason:', reason); return; }
+                if (neverShow()) { console.debug('[PWA] NEVER_SHOW set — suppress iOS tip, reason:', reason); return; }
+                if (isStandalone()) { console.debug('[PWA] already in standalone — suppress iOS tip, reason:', reason); return; }
 
-                  if (!alreadyInstalled && window.__pwa.isIOS && !isInStandalone) {
-                    // Let InstallBanner render the "Share → Add to Home Screen" guidance.
-                    window.dispatchEvent(new CustomEvent('pwa:ios-tip'));
-                  }
-                }
-              } catch (e) {}
+                // Give React time to mount InstallBanner listeners
+                setTimeout(function(){
+                  console.debug('[PWA] dispatch pwa:ios-tip, reason:', reason);
+                  window.dispatchEvent(new CustomEvent('pwa:ios-tip'));
+                }, 150);
+              }
 
-              // Optional: manual trigger (still respects NEVER_SHOW_KEY)
+              // Fire once on load
+              maybeDispatchIOSTip('load');
+
+              // Also re-check on tab visibility changes (helps on back/forward)
+              document.addEventListener('visibilitychange', function(){
+                if (!document.hidden) maybeDispatchIOSTip('visibilitychange');
+              });
+
+              // Optional: manual trigger (respects NEVER_SHOW)
               window.openInstallBanner = function() {
-                try { if (localStorage.getItem(NEVER_SHOW_KEY) === '1') return; } catch (e) {}
+                if (neverShow()) { console.debug('[PWA] manual open blocked by NEVER_SHOW'); return; }
                 var preferAndroid = !!(window.__pwa && window.__pwa.canInstall && window.__pwa.deferredPrompt);
+                console.debug('[PWA] manual open banner; preferAndroid=', preferAndroid);
                 window.dispatchEvent(new CustomEvent('pwa:open-banner', { detail: { preferAndroid: preferAndroid } }));
               };
             })();
           `}
         </Script>
 
-        {/* Phone-only install banner component */}
         <InstallBanner />
 
         {children}
