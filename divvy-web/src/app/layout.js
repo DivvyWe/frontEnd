@@ -185,6 +185,14 @@ export default function RootLayout({ children }) {
         <InstallBanner />
 
         {children}
+        {/* ---- Global Beta Disclaimer Footer ---- */}
+        <footer className="px-4 pt-6 pb-[calc(env(safe-area-inset-bottom)+12px)] text-center">
+          <p className="mx-auto max-w-3xl text-[11px] leading-snug text-slate-500">
+            <span className="font-semibold text-slate-600">Divsez Beta.</span>{" "}
+            Features are experimental and may change without notice. You may
+            encounter occasional errors or data inaccuracies during this period.
+          </p>
+        </footer>
       </body>
     </html>
   );

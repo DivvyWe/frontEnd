@@ -6,7 +6,7 @@ import { useRouter } from "next/navigation";
 import { FiEye, FiEyeOff, FiMail, FiLock } from "react-icons/fi";
 import { FcGoogle } from "react-icons/fc";
 import Image from "next/image";
-
+import Link from "next/link";
 export default function SignInPage() {
   const router = useRouter();
   const [email, setEmail] = useState("");
@@ -101,7 +101,6 @@ export default function SignInPage() {
           />
           <div className="text-xl font-semibold text-[#84CC16]">Divsez</div>
         </div>
-
         <div className="rounded-2xl border border-slate-200 bg-white/90 shadow-lg shadow-lime-100/60 backdrop-blur p-6 sm:p-8">
           <header className="mb-6 text-center">
             <h1 className="text-2xl font-semibold tracking-tight">
@@ -238,9 +237,22 @@ export default function SignInPage() {
             </a>
           </p>
         </div>
-
-        <p className="mt-6 text-center text-xs text-slate-400">
-          By continuing, you agree to our Terms &amp; Privacy Policy.
+        <p className="mt-6 text-center text-xs text-slate-500">
+          By continuing, you agree to our{" "}
+          <Link
+            href="/terms"
+            className="font-medium text-[#84CC16] hover:underline hover:text-[#76b514] transition"
+          >
+            Terms
+          </Link>{" "}
+          &amp;{" "}
+          <Link
+            href="/privacy"
+            className="font-medium text-[#84CC16] hover:underline hover:text-[#76b514] transition"
+          >
+            Privacy Policy
+          </Link>
+          .
         </p>
       </div>
     </main>

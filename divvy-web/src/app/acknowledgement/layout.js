@@ -7,7 +7,6 @@ export const dynamic = "force-dynamic";
 export default async function AcknowledgementLayout({ children }) {
   const cookieStore = await cookies();
   const token = cookieStore.get("token")?.value;
-  console.log("[acknowledgement/layout] hasToken:", !!token);
 
   const h = await headers();
   const proto = h.get("x-forwarded-proto") ?? "http";
@@ -30,10 +29,7 @@ export default async function AcknowledgementLayout({ children }) {
       });
       if (meRes.ok) me = await meRes.json().catch(() => null);
     } catch (e) {
-      console.log(
-        "[acknowledgement/layout] /auth/me fetch error:",
-        e?.message || e
-      );
+      return;
     }
   }
 

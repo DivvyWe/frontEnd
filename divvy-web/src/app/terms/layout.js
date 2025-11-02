@@ -6,7 +6,6 @@ export const dynamic = "force-dynamic";
 export default async function TermsLayout({ children }) {
   const cookieStore = await cookies();
   const token = cookieStore.get("token")?.value;
-  console.log("[terms/layout] hasToken:", !!token);
 
   const h = await headers();
   const proto = h.get("x-forwarded-proto") ?? "http";
@@ -28,9 +27,7 @@ export default async function TermsLayout({ children }) {
         cache: "no-store",
       });
       if (meRes.ok) me = await meRes.json().catch(() => null);
-    } catch (e) {
-      console.log("[terms/layout] /auth/me fetch error:", e?.message || e);
-    }
+    } catch (e) {}
   }
 
   return (

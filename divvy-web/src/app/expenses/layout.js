@@ -76,18 +76,16 @@ export default async function AppLayout({ children }) {
   const me = await getMeOrRedirect();
 
   return (
-    <main className="min-h-screen bg-[radial-gradient(60rem_40rem_at_20%_0%,#dcfce7_0%,transparent_60%),radial-gradient(50rem_30rem_at_100%_100%,#f7fee7_0%,transparent_60%)]">
-      {/* Top nav (sticky on mobile for quick access) */}
-      <div className="sticky top-0 z-40 bg-white/80 backdrop-blur supports-[backdrop-filter]:bg-white/60 border-b border-black/5">
-        <AppNav me={me} />
-      </div>
-
-      {/* Page container */}
-      <section className="mx-auto w-full max-w-6xl px-4 py-6 md:py-10">
+    <main className="relative min-h-screen bg-[radial-gradient(60rem_40rem_at_20%_0%,#dcfce7_0%,transparent_60%),radial-gradient(50rem_30rem_at_100%_100%,#f7fee7_0%,transparent_60%)]">
+      <AppNav me={me} />
+      {/* Page content area */}
+      <section className="mx-auto w-full max-w-6xl px-4 pb-24 pt-6 md:pt-10">
         {children}
       </section>
 
-      {/* Mobile safe-area padding */}
+      {/* Bottom nav (fixed on mobile) */}
+
+      {/* Safe-area padding for iOS */}
       <div className="h-[env(safe-area-inset-bottom)]" />
     </main>
   );

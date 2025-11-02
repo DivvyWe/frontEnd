@@ -1,14 +1,14 @@
 // src/components/ChangePasswordModal.jsx
 "use client";
 
-import { useEffect, useRef, useState } from "react";
-import { FiX, FiLock, FiEye, FiEyeOff } from "react-icons/fi";
+import { useEffect, useMemo, useRef, useState } from "react";
+import { FiX, FiLock, FiEye, FiEyeOff, FiCheckCircle } from "react-icons/fi";
 
 const BRAND = "#84CC16";
+const strongPwd = /^(?=.*[a-z])(?=.*[A-Z])(?=.*\d)(?=.*[^\w\s]).{8,}$/;
 
-// Adjust this to your actual backend route & payload keys if different
 async function changePasswordRequest({ currentPassword, newPassword }) {
-  const res = await fetch("/api/proxy/auth/change-password", {
+  const res = await fetch("/api/auth/change-password", {
     method: "POST",
     headers: { "Content-Type": "application/json", Accept: "application/json" },
     body: JSON.stringify({ currentPassword, newPassword }),
@@ -16,9 +16,8 @@ async function changePasswordRequest({ currentPassword, newPassword }) {
   });
   const text = await res.text();
   if (!res.ok) {
-    // try parse JSON error, otherwise show text
     try {
-      const j = JSON.parse(text || "{}");
+      const j = text ? JSON.parse(text) : {};
       throw new Error(j?.message || "Failed to change password");
     } catch {
       throw new Error(text || "Failed to change password");
@@ -44,16 +43,14 @@ export default function ChangePasswordModal() {
   const dialogRef = useRef(null);
   const firstInputRef = useRef(null);
 
-  // Open on custom event from profile page button
+  // Open on event
   useEffect(() => {
-    function onOpen() {
-      setOpen(true);
-    }
+    const onOpen = () => setOpen(true);
     window.addEventListener("open-change-password", onOpen);
     return () => window.removeEventListener("open-change-password", onOpen);
   }, []);
 
-  // Focus first input when opened
+  // Reset/focus
   useEffect(() => {
     if (open) {
       setTimeout(() => firstInputRef.current?.focus(), 50);
@@ -72,22 +69,39 @@ export default function ChangePasswordModal() {
 
   // Close on ESC
   useEffect(() => {
-    function onKey(e) {
-      if (e.key === "Escape") setOpen(false);
-    }
+    const onKey = (e) => e.key === "Escape" && setOpen(false);
     if (open) document.addEventListener("keydown", onKey);
     return () => document.removeEventListener("keydown", onKey);
   }, [open]);
 
+  // Live validity
+  const meetsLength = newPwd.length >= 8;
+  const hasUpper = /[A-Z]/.test(newPwd);
+  const hasLower = /[a-z]/.test(newPwd);
+  const hasNumber = /\d/.test(newPwd);
+  const hasSpecial = /[^\w\s]/.test(newPwd);
+  const matchesConfirm = confirmPwd === newPwd && newPwd.length > 0;
+  const differentFromOld = newPwd && oldPwd && newPwd !== oldPwd;
+  const meetsStrong = strongPwd.test(newPwd);
+
+  const canSubmit = useMemo(
+    () =>
+      !!oldPwd &&
+      meetsStrong &&
+      matchesConfirm &&
+      differentFromOld &&
+      !submitting,
+    [oldPwd, meetsStrong, matchesConfirm, differentFromOld, submitting]
+  );
+
   function validate() {
     if (!oldPwd) return "Current password is required.";
     if (!newPwd) return "New password is required.";
-    if (newPwd.length < 8) return "New password must be at least 8 characters.";
-    if (!/[A-Za-z]/.test(newPwd) || !/[0-9]/.test(newPwd))
-      return "New password must include letters and numbers.";
-    if (newPwd === oldPwd)
+    if (!meetsStrong)
+      return "Password must be 8+ chars and include uppercase, lowercase, number, and special character.";
+    if (!differentFromOld)
       return "New password must be different from the current one.";
-    if (confirmPwd !== newPwd) return "Passwords do not match.";
+    if (!matchesConfirm) return "Passwords do not match.";
     return "";
   }
 
@@ -108,16 +122,31 @@ export default function ChangePasswordModal() {
         newPassword: newPwd,
       });
       setOk("Password changed successfully.");
-      // Optionally auto-close after a short delay
-      setTimeout(() => setOpen(false), 800);
+      setTimeout(() => setOpen(false), 900);
     } catch (err) {
-      setError(err?.message || "Failed to change password.");
+      const msg = err?.message || "Failed to change password.";
+      if (/unauthorized|expired|403|401/i.test(msg)) {
+        window.location.href = "/login";
+        return;
+      }
+      setError(msg);
     } finally {
       setSubmitting(false);
     }
   }
 
   if (!open) return null;
+
+  const Rule = ({ ok, label }) => (
+    <div className="flex items-center gap-2 text-xs">
+      <FiCheckCircle
+        className={`h-4 w-4 ${ok ? "text-emerald-600" : "text-slate-400"}`}
+      />
+      <span className={ok ? "text-emerald-700" : "text-slate-500"}>
+        {label}
+      </span>
+    </div>
+  );
 
   return (
     <div
@@ -222,12 +251,9 @@ export default function ChangePasswordModal() {
                 )}
               </button>
             </div>
-            <p className="text-xs text-slate-500">
-              Must be at least 8 characters and include letters & numbers.
-            </p>
           </label>
 
-          {/* Confirm password */}
+          {/* Confirm */}
           <label className="grid gap-1">
             <span className="text-xs font-medium uppercase text-slate-500">
               Confirm new password
@@ -261,6 +287,20 @@ export default function ChangePasswordModal() {
             </div>
           </label>
 
+          {/* Live rules */}
+          <div className="mt-1 grid grid-cols-1 sm:grid-cols-2 gap-x-6 gap-y-1 rounded-lg border border-slate-200 p-3">
+            <Rule ok={meetsLength} label="At least 8 characters" />
+            <Rule ok={hasUpper} label="Contains an uppercase letter" />
+            <Rule ok={hasLower} label="Contains a lowercase letter" />
+            <Rule ok={hasNumber} label="Contains a number" />
+            <Rule ok={hasSpecial} label="Contains a special character" />
+            <Rule ok={matchesConfirm} label="Confirm matches" />
+            <Rule
+              ok={differentFromOld}
+              label="Different from current password"
+            />
+          </div>
+
           {/* Messages */}
           {error ? (
             <div className="rounded-lg border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-700">
@@ -283,9 +323,12 @@ export default function ChangePasswordModal() {
             </button>
             <button
               type="submit"
-              disabled={submitting}
-              className="rounded-lg px-4 py-2 text-sm font-semibold text-white hover:opacity-90 disabled:cursor-not-allowed disabled:opacity-60"
+              disabled={!canSubmit}
+              className={`rounded-lg px-4 py-2 text-sm font-semibold text-white hover:opacity-90 disabled:cursor-not-allowed disabled:opacity-60`}
               style={{ backgroundColor: BRAND }}
+              title={
+                !canSubmit ? "Meet all criteria to continue" : "Change password"
+              }
             >
               {submitting ? "Changing…" : "Change password"}
             </button>

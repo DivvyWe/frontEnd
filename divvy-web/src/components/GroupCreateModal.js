@@ -56,7 +56,6 @@ export default function GroupCreateModal({ open, onClose, onCreated }) {
         name: name.trim(),
         memberIds: selectedIds, // ⬅️ send here
       };
-      console.log("➡️ POST", CREATE_ENDPOINT, payload);
 
       const res = await fetch(CREATE_ENDPOINT, {
         method: "POST",
@@ -69,7 +68,6 @@ export default function GroupCreateModal({ open, onClose, onCreated }) {
       });
 
       const data = await res.json().catch(() => ({}));
-      console.log("⬅️ createGroup response:", res.status, data);
 
       if (res.status === 401) {
         router.replace("/auth/signin");
@@ -151,9 +149,17 @@ export default function GroupCreateModal({ open, onClose, onCreated }) {
                 placeholder="Roommates, Trip to Bali, Dinner club…"
                 value={name}
                 onChange={(e) => setName(e.target.value)}
-                maxLength={80}
+                maxLength={60}
                 required
               />
+              <div
+                className={`mt-1 text-xs ${
+                  name.length >= 60 ? "text-red-600" : "text-slate-500"
+                }`}
+              >
+                {name.length}/60 characters
+                {name.length >= 60 && " – Maximum limit reached"}
+              </div>
             </div>
 
             {/* IDs-only picker */}

@@ -484,7 +484,7 @@ export default function GroupsClient({
   const skeletonCount = Math.max(6, Math.min(9, items.length || 6));
 
   return (
-    <div className="space-y-6 pb-24 md:pb-10">
+    <div className="space-y-6 md:pb-10">
       {/* Greeting */}
       <div className="flex flex-col gap-1">
         <h1 className="text-2xl font-semibold text-slate-800">

@@ -196,8 +196,13 @@ export default function AppNav({ me }) {
                 priority
                 className="h-9 w-9 rounded-lg"
               />
-              <span className="text-xl font-semibold tracking-tight text-[#84CC16]">
-                Divsez
+              <span className="flex items-baseline gap-1">
+                <span className="text-xl font-semibold tracking-tight text-[#84CC16]">
+                  Divsez
+                </span>
+                <span className="text-[8px] font-medium text-slate-400 uppercase tracking-wide">
+                  Beta
+                </span>
               </span>
             </Link>
           </div>

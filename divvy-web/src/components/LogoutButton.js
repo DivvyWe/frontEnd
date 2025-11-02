@@ -1,3 +1,4 @@
+// src/components/LogoutButton.jsx
 "use client";
 
 import { useRouter } from "next/navigation";
@@ -9,10 +10,29 @@ export default function LogoutButton() {
   const [loading, setLoading] = useState(false);
 
   async function onLogout() {
+    if (loading) return;
+    setLoading(true);
     try {
-      setLoading(true);
-      await fetch("/api/auth/logout", { method: "POST" });
+      // 1️⃣ Tell the server to expire the HttpOnly token cookie
+      await fetch("/api/auth/logout", {
+        method: "POST",
+        cache: "no-store",
+      }).catch(() => {});
+
+      // 2️⃣ Also clear any old non-HttpOnly cookie (from older login flow)
+      document.cookie = [
+        "token=;",
+        "Path=/",
+        "Max-Age=0",
+        "SameSite=Lax",
+        window.location.protocol === "https:" ? "Secure" : null,
+      ]
+        .filter(Boolean)
+        .join("; ");
+
+      // 3️⃣ Redirect back to sign-in
       router.replace("/auth/signin");
+      router.refresh?.(); // ensure pages reload without cached auth
     } finally {
       setLoading(false);
     }

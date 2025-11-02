@@ -29,6 +29,19 @@ function clearTokenHeaderValue() {
     .join("; ");
 }
 
+function setTokenHeaderValue(token) {
+  return [
+    `token=${token}`,
+    "Path=/",
+    `Max-Age=${60 * 60 * 24 * 30}`, // 30 days
+    "HttpOnly",
+    "SameSite=Lax",
+    PROD ? "Secure" : null,
+  ]
+    .filter(Boolean)
+    .join("; ");
+}
+
 async function handle(req, ctx, method) {
   if (!BASE) {
     return NextResponse.json(
@@ -103,6 +116,56 @@ async function handle(req, ctx, method) {
     );
   }
 
+  // --- Special-case: login should set HttpOnly cookie on our domain ---
+  // Matches POST to .../auth/login (your backend login route)
+  if (method === "POST" && /(^|\/)auth\/login$/.test(rel)) {
+    // Read upstream body once
+    const raw = await upstream.text();
+    if (!upstream.ok) {
+      // Bubble up error payload/status as-is
+      return new NextResponse(
+        raw || JSON.stringify({ message: "Login failed" }),
+        {
+          status: upstream.status,
+          headers: {
+            "content-type":
+              upstream.headers.get("content-type") ||
+              "application/json; charset=utf-8",
+          },
+        }
+      );
+    }
+
+    // Parse JSON and set cookie if token present
+    try {
+      const data = JSON.parse(raw || "{}");
+      const tokenFromUpstream = data?.token;
+      const user = data?.user ?? null;
+
+      if (tokenFromUpstream) {
+        const res = NextResponse.json(
+          { ok: true, user, token: tokenFromUpstream },
+          { status: 200 }
+        );
+        res.headers.set("set-cookie", setTokenHeaderValue(tokenFromUpstream));
+        res.headers.set("x-proxied-by", "next-proxy");
+        return res;
+      }
+
+      // No token returned – treat as error for the client
+      return NextResponse.json(
+        { message: "No token returned from server" },
+        { status: 502 }
+      );
+    } catch {
+      return NextResponse.json(
+        { message: "Invalid login response" },
+        { status: 502 }
+      );
+    }
+  }
+  // --- End special-case login ---
+
   if (DEBUG)
     console.log(
       "[proxy] ←",
@@ -119,12 +182,9 @@ async function handle(req, ctx, method) {
   }
   resHeaders.set("x-proxied-by", "next-proxy");
 
-  // Forward backend Set-Cookie if present (e.g., after login)
+  // Forward backend Set-Cookie if present (e.g., other flows)
   const setCookie = upstream.headers.get("set-cookie");
   if (setCookie) {
-    // If multiple cookies are set upstream, Node may coalesce them.
-    // This still forwards them; if you need strict multi-cookie support,
-    // adjust backend to set a single cookie or split here.
     resHeaders.set("set-cookie", setCookie);
   }
 

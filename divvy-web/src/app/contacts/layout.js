@@ -51,7 +51,7 @@ export default async function ContactsLayout({ children }) {
       <AppNav me={me} active="contacts" />
 
       {/* Page content with bottom padding for fixed mobile tabs */}
-      <section className="mx-auto max-w-6xl px-4 py-6 pb-24 md:py-10 md:pb-10">
+      <section className="mx-auto max-w-6xl px-4 py-6 pb-6 md:py-10 md:pb-10">
         {children}
       </section>
     </main>

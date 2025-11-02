@@ -1,12 +1,22 @@
 "use client";
 
-import { useState } from "react";
+import { useMemo, useState } from "react";
 import { useRouter } from "next/navigation";
-import { FiUser, FiMail, FiLock, FiEye, FiEyeOff } from "react-icons/fi";
+import {
+  FiUser,
+  FiMail,
+  FiLock,
+  FiEye,
+  FiEyeOff,
+  FiCheckCircle,
+} from "react-icons/fi";
 import { FcGoogle } from "react-icons/fc";
 import Image from "next/image";
+import Link from "next/link";
 
 const EMAIL_RE = /^[^\s@]+@[^\s@]+\.[^\s@]{2,}$/i;
+// At least 8 chars, 1 uppercase, 1 lowercase, 1 number, 1 special
+const STRONG_PWD_RE = /^(?=.*[a-z])(?=.*[A-Z])(?=.*\d)(?=.*[^\w\s]).{8,}$/;
 
 export default function SignUpPage() {
   const router = useRouter();
@@ -20,7 +30,25 @@ export default function SignUpPage() {
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState("");
 
-  const API_BASE = process.env.NEXT_PUBLIC_API_URL || "";
+  const validEmail = EMAIL_RE.test(email.trim());
+  const meetsLength = password.length >= 8;
+  const hasUpper = /[A-Z]/.test(password);
+  const hasLower = /[a-z]/.test(password);
+  const hasNumber = /\d/.test(password);
+  const hasSpecial = /[^\w\s]/.test(password);
+  const strongPwd = STRONG_PWD_RE.test(password);
+  const matches = confirm === password && password.length > 0;
+
+  const canSubmit = useMemo(
+    () =>
+      !!fullName.trim() &&
+      validEmail &&
+      strongPwd &&
+      matches &&
+      agree &&
+      !submitting,
+    [fullName, validEmail, strongPwd, matches, agree, submitting]
+  );
 
   function handleGoogleSignup() {
     const oauthUrl = "/api/proxy/auth/google";
@@ -31,11 +59,13 @@ export default function SignUpPage() {
     e.preventDefault();
     setError("");
 
-    if (!EMAIL_RE.test(email.trim())) {
-      return setError("Please enter a valid email address");
-    }
-    if (password !== confirm) return setError("Passwords do not match");
-    if (!agree) return setError("Please agree to the Terms & Privacy");
+    if (!validEmail) return setError("Please enter a valid email address.");
+    if (!strongPwd)
+      return setError(
+        "Password must be 8+ chars and include uppercase, lowercase, number, and special character."
+      );
+    if (!matches) return setError("Passwords do not match.");
+    if (!agree) return setError("Please agree to the Terms & Privacy.");
 
     setSubmitting(true);
     try {
@@ -70,14 +100,25 @@ export default function SignUpPage() {
         throw new Error(data?.message || "Registration failed");
       }
 
-      // Optional: you can route to a "Check your email" page if verifying email first
+      // Optionally route to a “Check your email” page if you require verification
       router.replace("/groups");
     } catch (err) {
-      setError(err.message);
+      setError(err.message || "Registration failed");
     } finally {
       setSubmitting(false);
     }
   }
+
+  const Rule = ({ ok, label }) => (
+    <div className="flex items-center gap-2 text-xs">
+      <FiCheckCircle
+        className={`h-4 w-4 ${ok ? "text-emerald-600" : "text-slate-400"}`}
+      />
+      <span className={ok ? "text-emerald-700" : "text-slate-500"}>
+        {label}
+      </span>
+    </div>
+  );
 
   return (
     <main className="min-h-screen grid place-items-center py-10 px-4 bg-[radial-gradient(60rem_40rem_at_20%_0%,#dcfce7_0%,transparent_60%),radial-gradient(50rem_30rem_at_100%_100%,#f7fee7_0%,transparent_60%)]">
@@ -182,6 +223,11 @@ export default function SignUpPage() {
                   autoComplete="email"
                 />
               </div>
+              {!validEmail && email.length > 0 && (
+                <p className="mt-1 text-xs text-red-600">
+                  Enter a valid email address.
+                </p>
+              )}
             </div>
 
             {/* Password */}
@@ -214,9 +260,42 @@ export default function SignUpPage() {
                   {showPw ? <FiEyeOff /> : <FiEye />}
                 </button>
               </div>
+
+              {/* Inline password requirements */}
+              {password.length > 0 && (
+                <p
+                  className={`mt-1 text-xs ${
+                    STRONG_PWD_RE.test(password)
+                      ? "text-emerald-600"
+                      : "text-red-600"
+                  }`}
+                >
+                  {!STRONG_PWD_RE.test(password)
+                    ? [
+                        password.length < 8 && "at least 8 characters",
+                        !/[A-Z]/.test(password) && "an uppercase letter",
+                        !/[a-z]/.test(password) && "a lowercase letter",
+                        !/\d/.test(password) && "a number",
+                        !/[^\w\s]/.test(password) && "a special character",
+                      ]
+                        .filter(Boolean)
+                        .reduce(
+                          (msg, item, i, arr) =>
+                            msg +
+                            (i === 0
+                              ? "Password must include "
+                              : i === arr.length - 1
+                              ? ` and ${item}`
+                              : `, ${item}`),
+                          ""
+                        )
+                    : "Password meets all requirements."}
+                </p>
+              )}
             </div>
 
             {/* Confirm */}
+            {/* Confirm Password */}
             <div>
               <label
                 htmlFor="confirm"
@@ -246,6 +325,17 @@ export default function SignUpPage() {
                   {showPw2 ? <FiEyeOff /> : <FiEye />}
                 </button>
               </div>
+
+              {/* Inline match message */}
+              {confirm.length > 0 && (
+                <p
+                  className={`mt-1 text-xs font-medium ${
+                    matches ? "text-emerald-600" : "text-red-600"
+                  }`}
+                >
+                  {matches ? "Password matched." : "Password do not match."}
+                </p>
+              )}
             </div>
 
             {/* Terms */}
@@ -258,46 +348,79 @@ export default function SignUpPage() {
               />
               <span className="inline-flex items-center gap-1">
                 I agree to the{" "}
-                <a
-                  href="#"
+                <Link
+                  href="/terms"
                   className="font-medium text-slate-900 hover:text-[#84CC16]"
                 >
-                  Terms & Privacy
-                </a>
+                  Terms
+                </Link>{" "}
+                &{" "}
+                <Link
+                  href="/privacy"
+                  className="font-medium text-slate-900 hover:text-[#84CC16]"
+                >
+                  Privacy Policy
+                </Link>
               </span>
             </label>
 
             {/* Button */}
             <button
               type="submit"
-              disabled={!agree || submitting}
-              aria-disabled={!agree || submitting}
-              className={`mt-2 w-full rounded-lg px-3 py-2.5 font-semibold transition active:scale-[0.99]
-                ${
-                  !agree || submitting
-                    ? "bg-slate-300 text-white cursor-not-allowed"
-                    : "bg-[#84CC16] text-white hover:bg-[#76b514]"
-                }`}
+              disabled={!canSubmit}
+              aria-disabled={!canSubmit}
+              className={`mt-2 w-full rounded-lg px-3 py-2.5 font-semibold transition active:scale-[0.99] ${
+                !canSubmit
+                  ? "bg-slate-300 text-white cursor-not-allowed"
+                  : "bg-[#84CC16] text-white hover:bg-[#76b514]"
+              }`}
             >
               {submitting ? "Creating your account…" : "Create account"}
             </button>
 
             <p className="text-center text-sm text-slate-600">
               Already have an account?{" "}
-              <a
+              <Link
                 href="/auth/signin"
                 className="font-semibold text-slate-900 hover:text-[#84CC16]"
               >
                 Sign in
-              </a>
+              </Link>
             </p>
           </form>
         </div>
 
-        <p className="mt-6 text-center text-xs text-slate-400">
-          By continuing, you agree to our Terms &amp; Privacy Policy.
+        <p className="mt-6 text-center text-xs text-slate-500">
+          By continuing, you agree to our{" "}
+          <Link
+            href="/terms"
+            className="font-medium text-[#84CC16] hover:underline hover:text-[#76b514] transition"
+          >
+            Terms
+          </Link>{" "}
+          &{" "}
+          <Link
+            href="/privacy"
+            className="font-medium text-[#84CC16] hover:underline hover:text-[#76b514] transition"
+          >
+            Privacy Policy
+          </Link>
+          .
         </p>
       </div>
     </main>
+  );
+}
+
+function Rule({ ok, label }) {
+  return (
+    <div className="flex items-center gap-2 text-xs">
+      <FiCheckCircle
+        className={`h-4 w-4 ${ok ? "text-emerald-600" : "text-slate-400"}`}
+      />
+      <span className={ok ? "text-emerald-700" : "text-slate-500"}>
+        {label}
+      </span>
+    </div>
   );
 }

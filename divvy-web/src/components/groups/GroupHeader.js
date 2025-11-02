@@ -4,43 +4,56 @@ import { Settings } from "lucide-react";
 
 export default function GroupHeader({ groupName, groupId, isMember = false }) {
   return (
-    <header className="flex w-full flex-wrap items-center justify-between gap-3">
-      {/* Left: Title */}
-      <div className="min-w-0 flex-1">
-        <h1 className="truncate text-2xl font-semibold text-slate-900">
-          {groupName}
-        </h1>
-        <p className="text-sm text-slate-500">Group details & activity</p>
-      </div>
+    <header className="flex w-full flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+      {/* Row 1: Title + Settings (mobile-only) */}
+      <div className="flex w-full items-center justify-between">
+        <div className="min-w-0 flex-1">
+          <h1 className="truncate text-2xl font-semibold text-slate-900">
+            {groupName}
+          </h1>
+          <p className="text-sm text-slate-500">Group details & activity</p>
+        </div>
 
-      {/* Right: Actions */}
-      <div className="flex shrink-0 items-center gap-2">
-        {/* Add expense */}
-        <Link
-          href={`/expenses/${groupId}/add`}
-          className="rounded-lg bg-[#84CC16] px-3 py-2 text-sm font-semibold text-white hover:bg-[#76b514] transition-colors"
-        >
-          Add expense
-        </Link>
-
-        {/* Settle up */}
-        <Link
-          href={`/groups/${groupId}/settle`}
-          className="rounded-md bg-slate-900 px-3 py-2 text-sm font-semibold text-white hover:bg-slate-800 transition-colors"
-        >
-          Settle up
-        </Link>
-
-        {/* Settings (member-only) */}
+        {/* ⚙️ Mobile-only settings icon */}
         {isMember && (
           <Link
             href={`/groups/${groupId}?settings=1`}
             prefetch={false}
             aria-label="Open group settings"
             title="Settings"
-            className="inline-flex h-10 w-10 items-center justify-center rounded-full border border-slate-300 bg-white text-slate-700 hover:bg-slate-100 transition-colors"
+            className="ml-3 inline-flex h-10 w-10 shrink-0 flex-none items-center justify-center rounded-full border-2 border-slate-400 bg-transparent text-slate-700 hover:border-[#84CC16] hover:text-[#84CC16] transition-all sm:hidden"
           >
-            <Settings className="h-5 w-5" />
+            <Settings className="h-5 w-5" strokeWidth={2} />
+          </Link>
+        )}
+      </div>
+
+      {/* Row 2: Buttons (desktop shows circular settings icon) */}
+      <div className="flex w-full gap-2 sm:w-auto sm:justify-end">
+        <Link
+          href={`/expenses/${groupId}/add`}
+          className="flex-1 sm:flex-none rounded-lg bg-[#84CC16] px-3 py-2 text-center text-sm font-semibold text-white hover:bg-[#76b514] transition-colors"
+        >
+          Add expense
+        </Link>
+
+        <Link
+          href={`/groups/${groupId}/settle`}
+          className="flex-1 sm:flex-none rounded-md bg-slate-900 px-3 py-2 text-center text-sm font-semibold text-white hover:bg-slate-800 transition-colors"
+        >
+          Settle up
+        </Link>
+
+        {/* ⚙️ Desktop-only circular settings button */}
+        {isMember && (
+          <Link
+            href={`/groups/${groupId}?settings=1`}
+            prefetch={false}
+            aria-label="Open group settings"
+            title="Settings"
+            className="hidden sm:inline-flex h-10 w-10 shrink-0 flex-none items-center justify-center rounded-full border-2 border-slate-400 bg-transparent text-slate-700 hover:border-[#84CC16] hover:text-[#84CC16] transition-all"
+          >
+            <Settings className="h-5 w-5" strokeWidth={2} />
           </Link>
         )}
       </div>

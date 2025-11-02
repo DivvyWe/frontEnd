@@ -17,7 +17,6 @@ import {
 } from "react-icons/fi";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
-import LogoutButton from "@/components/LogoutButton";
 import ChangePasswordModal from "@/components/ChangePasswordModal";
 
 const BRAND = "#84CC16";
@@ -149,24 +148,27 @@ export default function ProfileClient({ initialMe }) {
   async function handleLogout() {
     if (loggingOut) return;
     setLoggingOut(true);
-
     try {
-      // 1) Try your hidden LogoutButton (if it renders a [data-logout] button)
-      const hiddenTrigger = document.querySelector("button[data-logout]");
-      if (hiddenTrigger) {
-        hiddenTrigger.click();
-      }
-
-      // 2) Also call the API directly as a reliable fallback
-      //    (adjust endpoint/method if your backend differs)
-      await fetch("/api/proxy/auth/logout", {
+      // 1) Invalidate HttpOnly token on the server
+      await fetch("/api/auth/logout", {
         method: "POST",
-        headers: { Accept: "application/json" },
         cache: "no-store",
       }).catch(() => {});
 
-      // 3) Route out (to sign-in or landing)
+      // 2) Also clear any legacy non-HttpOnly cookie (from older login flow)
+      document.cookie = [
+        "token=;",
+        "Path=/",
+        "Max-Age=0",
+        "SameSite=Lax",
+        window.location.protocol === "https:" ? "Secure" : null,
+      ]
+        .filter(Boolean)
+        .join("; ");
+
+      // 3) Redirect and refresh to drop any cached auth state
       router.replace("/auth/signin");
+      router.refresh?.();
     } catch (e) {
       console.error(e);
       alert("Could not log out. Please try again.");
@@ -305,11 +307,6 @@ export default function ProfileClient({ initialMe }) {
                 </>
               )}
             </button>
-
-            {/* Hidden backend logout trigger (if your component uses data-logout) */}
-            <div className="hidden">
-              <LogoutButton />
-            </div>
           </div>
         </div>
 
