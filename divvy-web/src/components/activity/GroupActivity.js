@@ -295,7 +295,7 @@ export default function GroupActivity({ groupId, pageSize = 30 }) {
 
   if (!rows.length) {
     return (
-      <section className="rounded-2xl bg-white p-8 shadow-sm ring-1 ring-black/5 text-center">
+      <section className="rounded-2xl bg-white p-8 mb-14 shadow-sm ring-1 ring-black/5 text-center">
         <div className="mx-auto mb-3 flex h-14 w-14 items-center justify-center rounded-full bg-slate-100 text-slate-400">
           <svg
             width="28"
@@ -323,8 +323,8 @@ export default function GroupActivity({ groupId, pageSize = 30 }) {
 
   /* ----- render list ----- */
   return (
-    <section className="rounded-2xl bg-white p-4 shadow-sm ring-1 ring-black/5">
-      <div className="mb-2 flex items-center justify-between">
+    <section className="rounded-2xl bg-white p-4 mb-14  shadow-sm ring-1 ring-black/5">
+      <div className="mb-2  flex items-center justify-between">
         <h2 className="text-sm font-semibold text-slate-900">Activity</h2>
       </div>
 

@@ -182,7 +182,7 @@ export default function ProfileClient({ initialMe }) {
 
   return (
     <>
-      <div className="mx-auto max-w-3xl p-4  sm:p-0">
+      <div className="mx-auto max-w-3xl p-4 pb-14 sm:p-0">
         {/* Header card */}
         <div className="rounded-2xl bg-white p-6 shadow-sm ring-1 ring-black/5">
           {/* stack on mobile, row on sm+ */}
