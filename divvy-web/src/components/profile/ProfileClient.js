@@ -44,6 +44,7 @@ function FieldRow({
   onSave,
   type = "text",
   placeholder = "",
+  editable = true, // 👈 control if this field can be edited
 }) {
   const [editing, setEditing] = useState(false);
   const [draft, setDraft] = useState(value || "");
@@ -54,70 +55,79 @@ function FieldRow({
   }, [value]);
 
   return (
-    <div className="flex items-start gap-3 rounded-xl border border-slate-200 bg-white px-4 py-3">
-      <div className="mt-1 rounded-md bg-slate-100 p-2 shrink-0 aspect-square grid place-items-center">
-        <Icon className="h-4 w-4 text-slate-500" />
-      </div>
-
-      <div className="min-w-0 flex-1">
-        <div className="text-xs font-medium uppercase text-slate-500">
-          {label}
+    <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3 rounded-xl border border-slate-200 bg-white px-4 py-3">
+      <div className="flex items-center gap-3 min-w-0 flex-1">
+        <div className="rounded-md bg-slate-100 p-2 shrink-0 grid place-items-center">
+          <Icon className="h-4 w-4 text-slate-500" />
         </div>
 
-        {!editing ? (
-          <div className="mt-0.5 flex items-center justify-between gap-3">
-            <div className="truncate text-slate-800">
-              {value || <span className="text-slate-400">—</span>}
+        <div className="min-w-0 flex-1">
+          <div className="text-xs font-medium uppercase text-slate-500">
+            {label}
+          </div>
+
+          {/* View mode */}
+          {!editing ? (
+            <div className="mt-0.5 flex items-center justify-between gap-3">
+              <div className="truncate text-slate-800">
+                {value || <span className="text-slate-400">—</span>}
+              </div>
+
+              {/* Edit button only if editable */}
+              {editable && (
+                // Keep visible on all sizes; if you want desktop-only, add "hidden sm:inline-flex"
+                <button
+                  onClick={() => setEditing(true)}
+                  className="inline-flex items-center gap-1 rounded-lg px-2 py-1 text-xs font-medium text-slate-600 hover:bg-slate-50"
+                >
+                  <FiEdit2 className="h-3.5 w-3.5" />
+                  Edit
+                </button>
+              )}
             </div>
-            <button
-              onClick={() => setEditing(true)}
-              className="inline-flex items-center gap-1 rounded-lg px-2 py-1 text-xs font-medium text-slate-600 hover:bg-slate-50"
-            >
-              <FiEdit2 className="h-3.5 w-3.5" />
-              Edit
-            </button>
-          </div>
-        ) : (
-          <div className="mt-1 flex items-center gap-2">
-            <input
-              type={type}
-              name={name}
-              value={draft}
-              onChange={(e) => setDraft(e.target.value)}
-              placeholder={placeholder}
-              className="w-full rounded-lg border border-slate-300 px-3 py-2 text-sm text-slate-800 outline-none ring-[#84CC16]/20 focus:border-[#84CC16] focus:ring-4"
-            />
-            <button
-              onClick={async () => {
-                if (!dirty) return setEditing(false);
-                try {
-                  await onSave({ [name]: draft });
+          ) : (
+            // Edit mode (never rendered if editable=false)
+            <div className="mt-1 flex items-center gap-2">
+              <input
+                type={type}
+                name={name}
+                value={draft}
+                onChange={(e) => setDraft(e.target.value)}
+                placeholder={placeholder}
+                className="w-full rounded-lg border border-slate-300 px-3 py-2 text-sm text-slate-800 outline-none ring-[#84CC16]/20 focus:border-[#84CC16] focus:ring-4"
+              />
+              <button
+                onClick={async () => {
+                  if (!dirty) return setEditing(false);
+                  try {
+                    await onSave({ [name]: draft });
+                    setEditing(false);
+                  } catch (e) {
+                    alert(e.message || "Update failed");
+                  }
+                }}
+                disabled={!dirty}
+                className={`grid h-9 w-9 place-items-center rounded-lg text-white ${
+                  dirty ? "hover:opacity-90" : "bg-slate-300 cursor-not-allowed"
+                }`}
+                style={dirty ? { backgroundColor: BRAND } : {}}
+                title="Save"
+              >
+                <FiCheck className="h-5 w-5" />
+              </button>
+              <button
+                onClick={() => {
+                  setDraft(value || "");
                   setEditing(false);
-                } catch (e) {
-                  alert(e.message || "Update failed");
-                }
-              }}
-              disabled={!dirty}
-              className={`grid h-9 w-9 aspect-square place-items-center rounded-lg text-white ${
-                dirty ? "hover:opacity-90" : "bg-slate-300 cursor-not-allowed"
-              }`}
-              style={dirty ? { backgroundColor: BRAND } : {}}
-              title="Save"
-            >
-              <FiCheck className="h-5 w-5" />
-            </button>
-            <button
-              onClick={() => {
-                setDraft(value || "");
-                setEditing(false);
-              }}
-              className="grid h-9 w-9 aspect-square place-items-center rounded-lg bg-slate-100 text-slate-600 hover:bg-slate-200"
-              title="Cancel"
-            >
-              <FiX className="h-5 w-5" />
-            </button>
-          </div>
-        )}
+                }}
+                className="grid h-9 w-9 place-items-center rounded-lg bg-slate-100 text-slate-600 hover:bg-slate-200"
+                title="Cancel"
+              >
+                <FiX className="h-5 w-5" />
+              </button>
+            </div>
+          )}
+        </div>
       </div>
     </div>
   );
@@ -126,7 +136,6 @@ function FieldRow({
 /* ------------------------------ Profile ------------------------------ */
 export default function ProfileClient({ initialMe }) {
   const [me, setMe] = useState(initialMe);
-  const [saving, setSaving] = useState(false);
   const [loggingOut, setLoggingOut] = useState(false);
   const router = useRouter();
 
@@ -136,13 +145,8 @@ export default function ProfileClient({ initialMe }) {
   );
 
   async function handleSave(patch) {
-    setSaving(true);
-    try {
-      const updated = await patchProfile(patch);
-      setMe((m) => ({ ...(m || {}), ...(updated || patch) }));
-    } finally {
-      setSaving(false);
-    }
+    const updated = await patchProfile(patch);
+    setMe((m) => ({ ...(m || {}), ...(updated || patch) }));
   }
 
   async function handleLogout() {
@@ -155,7 +159,7 @@ export default function ProfileClient({ initialMe }) {
         cache: "no-store",
       }).catch(() => {});
 
-      // 2) Also clear any legacy non-HttpOnly cookie (from older login flow)
+      // 2) Clear any legacy client cookie
       document.cookie = [
         "token=;",
         "Path=/",
@@ -166,7 +170,7 @@ export default function ProfileClient({ initialMe }) {
         .filter(Boolean)
         .join("; ");
 
-      // 3) Redirect and refresh to drop any cached auth state
+      // 3) Redirect
       router.replace("/auth/signin");
       router.refresh?.();
     } catch (e) {
@@ -178,7 +182,7 @@ export default function ProfileClient({ initialMe }) {
 
   return (
     <>
-      <div className="mx-auto max-w-3xl">
+      <div className="mx-auto max-w-3xl p-4  sm:p-0">
         {/* Header card */}
         <div className="rounded-2xl bg-white p-6 shadow-sm ring-1 ring-black/5">
           {/* stack on mobile, row on sm+ */}
@@ -197,12 +201,11 @@ export default function ProfileClient({ initialMe }) {
               </div>
             </div>
 
-            {/* ✅ Mobile-first Change Password button */}
+            {/* Mobile-first Change Password button */}
             <button
-              onClick={() => {
-                const evt = new CustomEvent("open-change-password");
-                window.dispatchEvent(evt);
-              }}
+              onClick={() =>
+                window.dispatchEvent(new CustomEvent("open-change-password"))
+              }
               aria-label="Change password"
               className="inline-flex w-full sm:w-auto items-center justify-center gap-2 rounded-xl border border-slate-300 bg-white px-4 py-3 text-sm font-semibold text-slate-800 shadow-sm hover:bg-slate-50 active:scale-[0.99] focus:outline-none focus-visible:ring-4 focus-visible:ring-[#84CC16]/30"
             >
@@ -211,7 +214,7 @@ export default function ProfileClient({ initialMe }) {
             </button>
           </div>
 
-          {/* Editable fields */}
+          {/* Fields */}
           <div className="grid gap-3">
             <FieldRow
               icon={FiUser}
@@ -220,6 +223,7 @@ export default function ProfileClient({ initialMe }) {
               value={me?.username || ""}
               onSave={handleSave}
               placeholder="Your display name"
+              editable={true}
             />
             <FieldRow
               icon={FiMail}
@@ -229,8 +233,9 @@ export default function ProfileClient({ initialMe }) {
               onSave={handleSave}
               type="email"
               placeholder="name@example.com"
+              editable={false} // ❌ read-only: no Edit on any screen size
             />
-            <FieldRow
+            {/* <FieldRow
               icon={FiPhone}
               label="Phone"
               name="phone"
@@ -238,7 +243,8 @@ export default function ProfileClient({ initialMe }) {
               onSave={handleSave}
               type="tel"
               placeholder="+61 ..."
-            />
+              editable={false} // ❌ read-only: no Edit on any screen size
+            /> */}
           </div>
         </div>
 
