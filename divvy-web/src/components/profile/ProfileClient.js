@@ -55,39 +55,25 @@ function FieldRow({
   }, [value]);
 
   return (
-    <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3 rounded-xl border border-slate-200 bg-white px-4 py-3">
-      <div className="flex items-center gap-3 min-w-0 flex-1">
-        <div className="rounded-md bg-slate-100 p-2 shrink-0 grid place-items-center">
-          <Icon className="h-4 w-4 text-slate-500" />
-        </div>
-
-        <div className="min-w-0 flex-1">
-          <div className="text-xs font-medium uppercase text-slate-500">
-            {label}
+    <div className="rounded-xl border border-slate-200 bg-white px-4 py-3 w-full">
+      {/* grid keeps button fixed right, field grows */}
+      <div className="grid grid-cols-[1fr_auto] gap-3 items-center">
+        {/* Left section */}
+        <div className="flex items-start sm:items-center gap-3 min-w-0">
+          <div className="rounded-md bg-slate-100 p-2 shrink-0 grid place-items-center">
+            <Icon className="h-4 w-4 text-slate-500" />
           </div>
+          <div className="min-w-0 flex-1">
+            <div className="text-xs font-medium uppercase text-slate-500 mb-0.5">
+              {label}
+            </div>
 
-          {/* View mode */}
-          {!editing ? (
-            <div className="mt-0.5 flex items-center justify-between gap-3">
-              <div className="truncate text-slate-800">
+            {/* Normal view */}
+            {!editing ? (
+              <div className="text-slate-800 break-words sm:truncate">
                 {value || <span className="text-slate-400">—</span>}
               </div>
-
-              {/* Edit button only if editable */}
-              {editable && (
-                // Keep visible on all sizes; if you want desktop-only, add "hidden sm:inline-flex"
-                <button
-                  onClick={() => setEditing(true)}
-                  className="inline-flex items-center gap-1 rounded-lg px-2 py-1 text-xs font-medium text-slate-600 hover:bg-slate-50"
-                >
-                  <FiEdit2 className="h-3.5 w-3.5" />
-                  Edit
-                </button>
-              )}
-            </div>
-          ) : (
-            // Edit mode (never rendered if editable=false)
-            <div className="mt-1 flex items-center gap-2">
+            ) : (
               <input
                 type={type}
                 name={name}
@@ -96,6 +82,25 @@ function FieldRow({
                 placeholder={placeholder}
                 className="w-full rounded-lg border border-slate-300 px-3 py-2 text-sm text-slate-800 outline-none ring-[#84CC16]/20 focus:border-[#84CC16] focus:ring-4"
               />
+            )}
+          </div>
+        </div>
+
+        {/* Right section (actions) */}
+        <div className="flex items-center justify-end gap-2 shrink-0">
+          {!editing ? (
+            editable && (
+              <button
+                onClick={() => setEditing(true)}
+                className="inline-flex items-center gap-1 rounded-lg px-2 py-1 text-xs font-medium text-slate-600 hover:bg-slate-50"
+                title="Edit"
+              >
+                <FiEdit2 className="h-3.5 w-3.5" />
+                <span className="hidden sm:inline">Edit</span>
+              </button>
+            )
+          ) : (
+            <>
               <button
                 onClick={async () => {
                   if (!dirty) return setEditing(false);
@@ -125,7 +130,7 @@ function FieldRow({
               >
                 <FiX className="h-5 w-5" />
               </button>
-            </div>
+            </>
           )}
         </div>
       </div>
@@ -184,7 +189,7 @@ export default function ProfileClient({ initialMe }) {
     <>
       <div className="mx-auto max-w-3xl p-4 pb-14 sm:p-0">
         {/* Header card */}
-        <div className="rounded-2xl bg-white p-6 shadow-sm ring-1 ring-black/5">
+        <div className="rounded-2xl bg-white p-6 shadow-sm ring-1 ring-black/5 overflow-x-hidden">
           {/* stack on mobile, row on sm+ */}
           <div className="mb-6 flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
             <div className="flex items-center gap-4 min-w-0">
