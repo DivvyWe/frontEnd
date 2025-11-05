@@ -1,14 +1,9 @@
-// app/groups/layout.js
+// src/app/auth/layout.js
 import { cookies } from "next/headers";
 import { redirect } from "next/navigation";
 
-export default async function GroupsLayout({ children }) {
+export default async function AuthLayout({ children }) {
   const token = (await cookies()).get("token")?.value;
-
-  // QUICK FIX: presence-only check
-  if (!token) {
-    redirect("/auth/signin");
-  }
-
+  if (token) redirect("/groups");
   return <>{children}</>;
 }
