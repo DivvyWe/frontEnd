@@ -50,141 +50,134 @@ export default function RootLayout({ children }) {
 
         {/* ------------- Service Worker (HTTPS or localhost) ------------- */}
         <Script id="sw-register" strategy="afterInteractive">
-          {`
-            (function(){
-              if (typeof window === 'undefined' || !('serviceWorker' in navigator)) return;
+          {`(function () {
+            if (typeof window === 'undefined' || !('serviceWorker' in navigator)) return;
+            var isLocal = location.hostname === 'localhost' || location.hostname === '127.0.0.1';
+            var isHttps = location.protocol === 'https:';
+            if (!isLocal && !isHttps) return;
 
-              var isLocal = location.hostname === 'localhost' || location.hostname === '127.0.0.1';
-              var isHttps = location.protocol === 'https:';
-              if (!isLocal && !isHttps) return;
+            navigator.serviceWorker.register('/sw.js', { type: 'module', scope: '/' })
+              .then(function (reg) {
+                window.__swReg = reg;
 
-              navigator.serviceWorker.register('/sw.js', { type: 'module', scope: '/' })
-                .then(function(reg){
-                  window.__swReg = reg;
+                if (reg.waiting) {
+                  window.dispatchEvent(new CustomEvent('sw:update-available', { detail: { reg } }));
+                }
 
-                  if (reg.waiting) {
-                    window.dispatchEvent(new CustomEvent('sw:update-available', { detail: { reg } }));
-                  }
-
-                  reg.addEventListener('updatefound', function () {
-                    var sw = reg.installing;
-                    if (!sw) return;
-                    sw.addEventListener('statechange', function () {
-                      if (sw.state === 'installed') {
-                        if (navigator.serviceWorker.controller) {
-                          window.dispatchEvent(new CustomEvent('sw:update-available', { detail: { reg } }));
-                        } else {
-                          window.dispatchEvent(new CustomEvent('sw:ready', { detail: { reg } }));
-                        }
+                reg.addEventListener('updatefound', function () {
+                  var sw = reg.installing;
+                  if (!sw) return;
+                  sw.addEventListener('statechange', function () {
+                    if (sw.state === 'installed') {
+                      if (navigator.serviceWorker.controller) {
+                        window.dispatchEvent(new CustomEvent('sw:update-available', { detail: { reg } }));
+                      } else {
+                        window.dispatchEvent(new CustomEvent('sw:ready', { detail: { reg } }));
                       }
-                    });
+                    }
                   });
-
-                  navigator.serviceWorker.addEventListener('controllerchange', function(){
-                    window.dispatchEvent(new CustomEvent('sw:updated'));
-                  });
-
-                  window.addEventListener('sw:skip-waiting', function(){
-                    if (reg.waiting) reg.waiting.postMessage({ type: 'SKIP_WAITING' });
-                  });
-                })
-                .catch(function (err) {
-                  console.error('SW registration failed:', err);
                 });
-            })();
-          `}
+
+                navigator.serviceWorker.addEventListener('controllerchange', function () {
+                  window.dispatchEvent(new CustomEvent('sw:updated'));
+                });
+
+                window.addEventListener('sw:skip-waiting', function () {
+                  if (reg.waiting) reg.waiting.postMessage({ type: 'SKIP_WAITING' });
+                });
+              })
+              .catch(function (err) {
+                console.error('SW registration failed:', err);
+              });
+          })();`}
         </Script>
 
         {/* ---------------- PWA install hooks — phones only ---------------- */}
         <Script id="pwa-install-hooks" strategy="afterInteractive">
-          {`
-            (function () {
-              var NEVER_SHOW_KEY = 'pwa-never-show';
+          {`(function () {
+            var NEVER_SHOW_KEY = 'pwa-never-show';
 
-              function isiPhone() {
-                return /iphone|ipod/i.test(navigator.userAgent || '');
-              }
-              function isPhoneLike() {
-                // Keep it simple and permissive; iOS is picky and we only need iPhone here.
-                var ua = navigator.userAgent || '';
-                var mobileHints = /(android|iphone|ipod|windows phone|blackberry|iemobile)/i.test(ua);
-                // Exclude iPad (often "Macintosh" + touch) from iPhone banner
-                var isIPadLike = /ipad|macintosh/i.test(ua) && 'ontouchend' in window;
-                return mobileHints && !isIPadLike;
-              }
-              function isStandalone() {
-                try {
-                  return (window.matchMedia && window.matchMedia('(display-mode: standalone)').matches) || (window.navigator.standalone === true);
-                } catch { return false; }
-              }
-              function neverShow() {
-                try { return localStorage.getItem(NEVER_SHOW_KEY) === '1'; } catch { return false; }
-              }
+            function isiPhone() {
+              return /iphone|ipod/i.test(navigator.userAgent || '');
+            }
+            function isPhoneLike() {
+              var ua = navigator.userAgent || '';
+              var mobileHints = /(android|iphone|ipod|windows phone|blackberry|iemobile)/i.test(ua);
+              var isIPadLike = /ipad|macintosh/i.test(ua) && 'ontouchend' in window;
+              return mobileHints && !isIPadLike;
+            }
+            function isStandalone() {
+              try {
+                return (window.matchMedia && window.matchMedia('(display-mode: standalone)').matches) || (window.navigator.standalone === true);
+              } catch { return false; }
+            }
+            function neverShow() {
+              try { return localStorage.getItem(NEVER_SHOW_KEY) === '1'; } catch { return false; }
+            }
 
-              if (!isPhoneLike()) {
-                console.debug('[PWA] skip hooks: not phone-like UA');
+            if (!isPhoneLike()) {
+              console.debug('[PWA] skip hooks: not phone-like UA');
+              return;
+            }
+
+            window.__pwa = window.__pwa || { deferredPrompt: null, canInstall: false, installed: false, isIOS: isiPhone() };
+
+            // Android native flow
+            window.addEventListener('beforeinstallprompt', function (e) {
+              if (neverShow()) {
+                console.debug('[PWA] NEVER_SHOW set — suppress Android prompt');
                 return;
               }
+              e.preventDefault();
+              window.__pwa.deferredPrompt = e;
+              window.__pwa.canInstall = true;
+              console.debug('[PWA] beforeinstallprompt captured');
+              window.dispatchEvent(new CustomEvent('pwa:can-install'));
+            });
 
-              window.__pwa = window.__pwa || {
-                deferredPrompt: null,
-                canInstall: false,
-                installed: false,
-                isIOS: isiPhone(),
-              };
+            window.addEventListener('appinstalled', function () {
+              window.__pwa.installed = true;
+              try { localStorage.setItem('pwa-installed', '1'); } catch {}
+              console.debug('[PWA] appinstalled');
+              window.dispatchEvent(new CustomEvent('pwa:installed'));
+            });
 
-              // --- Android native flow ---
-              window.addEventListener('beforeinstallprompt', function (e) {
-                if (neverShow()) { console.debug('[PWA] NEVER_SHOW set — suppress Android prompt'); return; }
-                e.preventDefault();
-                window.__pwa.deferredPrompt = e;
-                window.__pwa.canInstall = true;
-                console.debug('[PWA] beforeinstallprompt captured');
-                window.dispatchEvent(new CustomEvent('pwa:can-install'));
-              });
+            // iPhone manual tip (no beforeinstallprompt)
+            function maybeDispatchIOSTip(reason) {
+              if (!window.__pwa.isIOS) { console.debug('[PWA] not iOS, reason:', reason); return; }
+              if (neverShow()) { console.debug('[PWA] NEVER_SHOW set — suppress iOS tip, reason:', reason); return; }
+              if (isStandalone()) { console.debug('[PWA] already in standalone — suppress iOS tip, reason:', reason); return; }
+              setTimeout(function () {
+                console.debug('[PWA] dispatch pwa:ios-tip, reason:', reason);
+                window.dispatchEvent(new CustomEvent('pwa:ios-tip'));
+              }, 150);
+            }
 
-              window.addEventListener('appinstalled', function () {
-                window.__pwa.installed = true;
-                try { localStorage.setItem('pwa-installed', '1'); } catch {}
-                console.debug('[PWA] appinstalled');
-                window.dispatchEvent(new CustomEvent('pwa:installed'));
-              });
+            // Fire once on load
+            maybeDispatchIOSTip('load');
 
-              // --- iPhone manual tip (no beforeinstallprompt) ---
-              function maybeDispatchIOSTip(reason) {
-                if (!window.__pwa.isIOS) { console.debug('[PWA] not iOS, reason:', reason); return; }
-                if (neverShow()) { console.debug('[PWA] NEVER_SHOW set — suppress iOS tip, reason:', reason); return; }
-                if (isStandalone()) { console.debug('[PWA] already in standalone — suppress iOS tip, reason:', reason); return; }
+            // Re-check on tab visibility changes
+            document.addEventListener('visibilitychange', function () {
+              if (!document.hidden) maybeDispatchIOSTip('visibilitychange');
+            });
 
-                // Give React time to mount InstallBanner listeners
-                setTimeout(function(){
-                  console.debug('[PWA] dispatch pwa:ios-tip, reason:', reason);
-                  window.dispatchEvent(new CustomEvent('pwa:ios-tip'));
-                }, 150);
+            // Manual trigger (respects NEVER_SHOW)
+            window.openInstallBanner = function () {
+              if (neverShow()) {
+                console.debug('[PWA] manual open blocked by NEVER_SHOW');
+                return;
               }
-
-              // Fire once on load
-              maybeDispatchIOSTip('load');
-
-              // Also re-check on tab visibility changes (helps on back/forward)
-              document.addEventListener('visibilitychange', function(){
-                if (!document.hidden) maybeDispatchIOSTip('visibilitychange');
-              });
-
-              // Optional: manual trigger (respects NEVER_SHOW)
-              window.openInstallBanner = function() {
-                if (neverShow()) { console.debug('[PWA] manual open blocked by NEVER_SHOW'); return; }
-                var preferAndroid = !!(window.__pwa && window.__pwa.canInstall && window.__pwa.deferredPrompt);
-                console.debug('[PWA] manual open banner; preferAndroid=', preferAndroid);
-                window.dispatchEvent(new CustomEvent('pwa:open-banner', { detail: { preferAndroid: preferAndroid } }));
-              };
-            })();
-          `}
+              var preferAndroid = !!(window.__pwa && window.__pwa.canInstall && window.__pwa.deferredPrompt);
+              console.debug('[PWA] manual open banner; preferAndroid=', preferAndroid);
+              window.dispatchEvent(new CustomEvent('pwa:open-banner', { detail: { preferAndroid: preferAndroid } }));
+            };
+          })();`}
         </Script>
 
         <InstallBanner />
 
         {children}
+
         {/* ---- Global Beta Disclaimer Footer ---- */}
         <footer className="px-4 pt-6 pb-[calc(env(safe-area-inset-bottom)+12px)] text-center">
           <p className="mx-auto max-w-3xl text-[11px] leading-snug text-slate-500">
