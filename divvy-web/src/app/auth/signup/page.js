@@ -178,6 +178,9 @@ export default function SignUpPage() {
               <span className="text-2xl font-semibold tracking-tight text-[#84CC16]">
                 Divsez
               </span>
+              <span className="text-[8px] font-medium text-slate-400 uppercase tracking-wide">
+                Beta
+              </span>
             </span>
           </div>
 
