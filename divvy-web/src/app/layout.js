@@ -49,12 +49,15 @@ export default function RootLayout({ children }) {
         <PushClickHandler />
 
         {/* ------------- Service Worker (HTTPS or localhost) ------------- */}
-        <Script id="sw-register" strategy="afterInteractive">
-          {`(function () {
+        <Script id="sw-register" strategy="afterInteractive">{`
+          (function () {
             if (typeof window === 'undefined' || !('serviceWorker' in navigator)) return;
             var isLocal = location.hostname === 'localhost' || location.hostname === '127.0.0.1';
             var isHttps = location.protocol === 'https:';
             if (!isLocal && !isHttps) return;
+
+            // Avoid duplicate registration during HMR / soft navigations
+            if (navigator.serviceWorker.controller && window.__swReg) return;
 
             navigator.serviceWorker.register('/sw.js', { type: 'module', scope: '/' })
               .then(function (reg) {
@@ -89,12 +92,12 @@ export default function RootLayout({ children }) {
               .catch(function (err) {
                 console.error('SW registration failed:', err);
               });
-          })();`}
-        </Script>
+          })();
+        `}</Script>
 
         {/* ---------------- PWA install hooks — phones only ---------------- */}
-        <Script id="pwa-install-hooks" strategy="afterInteractive">
-          {`(function () {
+        <Script id="pwa-install-hooks" strategy="afterInteractive">{`
+          (function () {
             var NEVER_SHOW_KEY = 'pwa-never-show';
 
             function isiPhone() {
@@ -171,8 +174,8 @@ export default function RootLayout({ children }) {
               console.debug('[PWA] manual open banner; preferAndroid=', preferAndroid);
               window.dispatchEvent(new CustomEvent('pwa:open-banner', { detail: { preferAndroid: preferAndroid } }));
             };
-          })();`}
-        </Script>
+          })();
+        `}</Script>
 
         <InstallBanner />
 

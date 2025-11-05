@@ -1,14 +1,18 @@
 // app/auth/signin/page.js
 "use client";
 
-import { useState } from "react";
-import { useRouter } from "next/navigation";
+import { useMemo, useState } from "react";
+import { useRouter, useSearchParams } from "next/navigation";
 import { FiEye, FiEyeOff, FiMail, FiLock } from "react-icons/fi";
 import { FcGoogle } from "react-icons/fc";
 import Image from "next/image";
 import Link from "next/link";
+
 export default function SignInPage() {
   const router = useRouter();
+  const qs = useSearchParams();
+  const nextPath = useMemo(() => qs.get("next") || "/groups", [qs]);
+
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
   const [submitting, setSubmitting] = useState(false);
@@ -17,9 +21,13 @@ export default function SignInPage() {
 
   const isValid = email.trim() && password.trim();
 
-  function handleGoogleSignIn() {
-    // Go through Next proxy → backend /api/auth/google
-    window.location.assign("/api/proxy/auth/google");
+  async function handleGoogleSignIn() {
+    try {
+      const next = encodeURIComponent(nextPath);
+      window.location.href = `/api/proxy/auth/google?next=${next}`;
+    } catch {
+      setError("Could not start Google sign-in. Please try again.");
+    }
   }
 
   async function onSubmit(e) {
@@ -29,7 +37,6 @@ export default function SignInPage() {
     setError("");
 
     try {
-      // Use proxy so we never hardcode backend URL
       const res = await fetch("/api/proxy/auth/login", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
@@ -45,40 +52,38 @@ export default function SignInPage() {
         data = { message: raw };
       }
 
-      if (!res.ok) {
-        throw new Error(data?.message || "Login failed");
-      }
-
+      if (!res.ok) throw new Error(data?.message || "Login failed");
       const token = data?.token;
-      if (!token) {
-        throw new Error("No token returned from server");
-      }
+      if (!token) throw new Error("No token returned from server");
 
       // Store token in a client cookie (30 days)
       const isProd =
         typeof window !== "undefined" && window.location.protocol === "https:";
+      const domain =
+        typeof window !== "undefined"
+          ? `Domain=.${window.location.hostname.split(".").slice(-2).join(".")}`
+          : null;
       const cookie = [
         `token=${token}`,
         "Path=/",
         `Max-Age=${60 * 60 * 24 * 30}`,
         "SameSite=Lax",
+        domain,
         isProd ? "Secure" : null,
       ]
         .filter(Boolean)
         .join("; ");
       document.cookie = cookie;
 
-      // Optional: quick verify so user sees groups immediately
+      // Optional quick verify
       try {
         await fetch("/api/proxy/auth/me", {
           headers: { Authorization: `Bearer ${token}` },
           cache: "no-store",
         });
-      } catch {
-        /* ignore */
-      }
+      } catch {}
 
-      router.replace("/groups");
+      router.replace(nextPath);
     } catch (err) {
       setError(err.message || "Login failed");
     } finally {
@@ -101,6 +106,7 @@ export default function SignInPage() {
           />
           <div className="text-xl font-semibold text-[#84CC16]">Divsez</div>
         </div>
+
         <div className="rounded-2xl border border-slate-200 bg-white/90 shadow-lg shadow-lime-100/60 backdrop-blur p-6 sm:p-8">
           <header className="mb-6 text-center">
             <h1 className="text-2xl font-semibold tracking-tight">
@@ -191,12 +197,11 @@ export default function SignInPage() {
             <button
               type="submit"
               disabled={!isValid || submitting}
-              className={`relative w-full rounded-lg px-3 py-2.5 font-semibold text-white transition active:scale-[0.99]
-                ${
-                  !isValid || submitting
-                    ? "bg-slate-300 cursor-not-allowed"
-                    : "bg-[#84CC16] hover:bg-[#76b514]"
-                }`}
+              className={`relative w-full rounded-lg px-3 py-2.5 font-semibold text-white transition active:scale-[0.99] ${
+                !isValid || submitting
+                  ? "bg-slate-300 cursor-not-allowed"
+                  : "bg-[#84CC16] hover:bg-[#76b514]"
+              }`}
             >
               {submitting ? (
                 <span className="inline-flex items-center justify-center gap-2">
@@ -218,6 +223,7 @@ export default function SignInPage() {
             {/* Google login button */}
             <button
               type="button"
+              disabled={submitting}
               onClick={handleGoogleSignIn}
               className="inline-flex w-full items-center justify-center gap-3 rounded-lg border border-slate-300 bg-white px-3 py-2.5 font-medium text-slate-700 hover:bg-slate-50 transition active:scale-[0.99]"
               aria-label="Continue with Google"
@@ -237,6 +243,7 @@ export default function SignInPage() {
             </a>
           </p>
         </div>
+
         <p className="mt-6 text-center text-xs text-slate-500">
           By continuing, you agree to our{" "}
           <Link

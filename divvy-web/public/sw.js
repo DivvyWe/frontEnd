@@ -7,19 +7,21 @@ export {};
 /**
  * Divsez Service Worker
  * - Push notifications
- * - Offline support (navigations + static assets)
+ * - Offline support (static assets only)
  * - Update flow (skipWaiting/clients.claim + message bridge)
  *
- * NOTE: We intentionally DO NOT cache /_next/** to avoid stale-bundle issues.
+ * IMPORTANT:
+ * 1) We DO NOT cache HTML navigations to avoid auth redirect loops.
+ * 2) We DO NOT cache /auth or any /api/* responses.
  */
 
 const APP_NAME = "Divsez";
-const SW_VERSION = "v9";
+const SW_VERSION = "v10";
 const CACHE_NAME = `Divsez-cache-${SW_VERSION}`;
 
 // Precache these (adjust if needed)
 const PRECACHE_URLS = [
-  "/", // app shell
+  "/", // app shell (used for offline fallback only)
   "/offline", // optional fallback page
   "/manifest.webmanifest",
   "/favicon.ico",
@@ -40,13 +42,34 @@ const isHTMLRequest = (req) =>
 
 const sameOrigin = (url) => url.origin === self.location.origin;
 
+const isAuthLikePath = (path) =>
+  path.startsWith("/auth") || path.startsWith("/api/proxy/auth");
+
+function responseCacheable(res) {
+  if (!res || !res.ok) return false;
+  const cc = res.headers.get("cache-control") || "";
+  if (/no-store|no-cache|private/i.test(cc)) return false;
+  if (res.headers.has("set-cookie")) return false;
+  return true;
+}
+
+async function cachePutSafe(cache, req, res) {
+  try {
+    if (responseCacheable(res)) {
+      await cache.put(req, res.clone());
+    }
+  } catch {
+    // ignore quota / opaque errors
+  }
+}
+
 async function safePrecache(urls) {
   const cache = await caches.open(CACHE_NAME);
   await Promise.all(
     urls.map(async (url) => {
       try {
         const res = await fetch(url, { cache: "no-store" });
-        if (res && res.ok) await cache.put(url, res.clone());
+        if (responseCacheable(res)) await cache.put(url, res.clone());
       } catch {
         // ignore (e.g., /offline might not exist)
       }
@@ -67,7 +90,6 @@ self.addEventListener("activate", (event) => {
       await Promise.all(
         keys.map((k) => (k !== CACHE_NAME ? caches.delete(k) : null))
       );
-      // 🔧 Enable navigation preload
       if (self.registration.navigationPreload) {
         try {
           await self.registration.navigationPreload.enable();
@@ -97,7 +119,7 @@ self.addEventListener("message", (event) => {
     );
   }
 
-  // ✅ Explicitly return false so the browser doesn’t think we’ll reply later
+  // Explicitly return false so the browser doesn’t expect an async response
   return false;
 });
 
@@ -108,40 +130,34 @@ self.addEventListener("fetch", (event) => {
 
   const url = new URL(req.url);
 
-  // 0) Never touch Next.js bundles/HMR or dev internals
+  // 0) Never touch Next internals/bundles
   if (
     url.pathname.startsWith("/_next/") ||
     url.pathname.startsWith("/__next")
   ) {
-    return; // always let the network/browser handle it
+    return; // network/browser handles it
   }
 
-  // 1) Skip cross-origin and API calls
+  // 1) Skip cross-origin and ALL /api/* calls
   if (!sameOrigin(url) || url.pathname.startsWith("/api/")) {
     return; // network only
   }
 
-  // 2) HTML navigations → Network-first (with preload), then cache, then /offline
+  // 2) Never handle auth routes (network only)
+  if (isAuthLikePath(url.pathname)) {
+    return;
+  }
+
+  // 3) HTML navigations → Network-first (NO CACHING), fallback to /offline
   if (isHTMLRequest(req)) {
     event.respondWith(
       (async () => {
-        const cache = await caches.open(CACHE_NAME);
-
         try {
-          // Use preloaded response if available (very fast path)
           const preload = await event.preloadResponse;
-          if (preload) {
-            cache.put(req, preload.clone()).catch(() => {});
-            return preload;
-          }
-
-          // Normal network
-          const network = await fetch(req, { cache: "no-store" });
-          cache.put(req, network.clone()).catch(() => {});
-          return network;
+          if (preload) return preload;
+          return await fetch(req, { cache: "no-store" });
         } catch {
-          const cached = await cache.match(req);
-          if (cached) return cached;
+          const cache = await caches.open(CACHE_NAME);
           const offline = await cache.match("/offline");
           return (
             offline ||
@@ -156,57 +172,54 @@ self.addEventListener("fetch", (event) => {
     return;
   }
 
-  // 3) Fonts → Cache-first (usually stable)
+  // 4) Fonts → Cache-first
   if (/\.(woff2?|ttf|otf)$/i.test(url.pathname)) {
     event.respondWith(
       (async () => {
         const cache = await caches.open(CACHE_NAME);
         const cached = await cache.match(req);
         if (cached) return cached;
-        const network = await fetch(req).catch(() => null);
-        if (network && network.ok)
-          cache.put(req, network.clone()).catch(() => {});
-        return network || new Response(null, { status: 504 });
+        const net = await fetch(req).catch(() => null);
+        if (net && responseCacheable(net)) await cachePutSafe(cache, req, net);
+        return net || new Response(null, { status: 504 });
       })()
     );
     return;
   }
 
-  // 4) Images/icons → Stale-while-revalidate
+  // 5) Images/icons → Stale-while-revalidate
   if (/\.(png|jpg|jpeg|gif|webp|svg|ico)$/i.test(url.pathname)) {
     event.respondWith(
       (async () => {
         const cache = await caches.open(CACHE_NAME);
         const cached = await cache.match(req);
-        const networkPromise = fetch(req)
-          .then((res) => {
-            if (res && res.ok) cache.put(req, res.clone()).catch(() => {});
+        const netPromise = fetch(req)
+          .then(async (res) => {
+            if (responseCacheable(res)) await cachePutSafe(cache, req, res);
             return res;
           })
           .catch(() => null);
         return (
-          cached ||
-          (await networkPromise) ||
-          new Response(null, { status: 504 })
+          cached || (await netPromise) || new Response(null, { status: 504 })
         );
       })()
     );
     return;
   }
 
-  // 5) Other same-origin GET → Stale-while-revalidate
+  // 6) Other same-origin GET → Stale-while-revalidate
   event.respondWith(
     (async () => {
       const cache = await caches.open(CACHE_NAME);
       const cached = await cache.match(req);
-      const networkPromise = fetch(req)
-        .then((res) => {
-          if (res && res.ok) cache.put(req, res.clone()).catch(() => {});
+      const netPromise = fetch(req)
+        .then(async (res) => {
+          if (responseCacheable(res)) await cachePutSafe(cache, req, res);
           return res;
         })
         .catch(() => null);
       return (
-        cached || (await networkPromise) || new Response(null, { status: 504 })
+        cached || (await netPromise) || new Response(null, { status: 504 })
       );
     })()
   );
@@ -231,9 +244,9 @@ self.addEventListener("push", (event) => {
     body = "",
     icon = "/icons/notification-192.png",
     badge = "/icons/badge-72.png",
-    tag, // replace/update prior notification
-    url = "/", // navigation target on click
-    actions = [], // e.g. [{action:'open', title:'Open'}]
+    tag,
+    url = "/",
+    actions = [],
     requireInteraction = false,
   } = payload;
 
