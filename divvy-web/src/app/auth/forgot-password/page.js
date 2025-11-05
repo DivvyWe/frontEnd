@@ -61,7 +61,14 @@ export default function ForgotPasswordPage() {
             priority
             className="h-10 w-10 rounded-xl"
           />
-          <div className="text-xl font-semibold text-[#84CC16]">Divsez</div>
+          <span className="flex items-baseline gap-1">
+            <span className="text-2xl font-semibold tracking-tight text-[#84CC16]">
+              Divsez
+            </span>
+            <span className="text-[8px] font-medium text-slate-400 uppercase tracking-wide">
+              Beta
+            </span>
+          </span>
         </div>
 
         <div className="rounded-2xl border border-slate-200 bg-white/90 shadow-lg shadow-lime-100/60 backdrop-blur p-6 sm:p-8">
