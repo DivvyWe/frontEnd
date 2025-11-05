@@ -7,6 +7,7 @@ import { FiEye, FiEyeOff, FiMail, FiLock } from "react-icons/fi";
 import { FcGoogle } from "react-icons/fc";
 import Image from "next/image";
 import Link from "next/link";
+
 export default function SignInPage() {
   const router = useRouter();
   const [email, setEmail] = useState("");
@@ -20,6 +21,60 @@ export default function SignInPage() {
   function handleGoogleSignIn() {
     // Go through Next proxy → backend /api/auth/google
     window.location.assign("/api/proxy/auth/google");
+  }
+
+  // Helper: delete any existing token cookie variants
+  function deleteOldTokenCookies() {
+    // delete host-only (no Domain) cookie
+    document.cookie = [
+      "token=",
+      "Path=/",
+      "Max-Age=0",
+      // SameSite not required for deletion, but harmless
+      "SameSite=Lax",
+    ].join("; ");
+
+    // delete parent-domain cookie (if present)
+    document.cookie = [
+      "token=",
+      "Domain=.divsez.com",
+      "Path=/",
+      "Max-Age=0",
+      "SameSite=None",
+      "Secure",
+    ].join("; ");
+  }
+
+  // Helper: set the new cross-subdomain cookie
+  function setTokenCookie(token) {
+    const host = typeof window !== "undefined" ? window.location.hostname : "";
+    const isHttps =
+      typeof window !== "undefined" && window.location.protocol === "https:";
+    const onDivsezDomain = /\.divsez\.com$/i.test(host);
+
+    // In production on *.divsez.com → share across subdomains
+    if (isHttps && onDivsezDomain) {
+      document.cookie = [
+        `token=${token}`,
+        "Domain=.divsez.com",
+        "Path=/",
+        "Max-Age=31536000", // 1 year
+        "SameSite=None", // required for cross-site
+        "Secure", // required with SameSite=None
+      ].join("; ");
+      return;
+    }
+
+    // Fallback for local/dev (no Domain, no SameSite=None)
+    document.cookie = [
+      `token=${token}`,
+      "Path=/",
+      "Max-Age=31536000",
+      isHttps ? "Secure" : null,
+      "SameSite=Lax",
+    ]
+      .filter(Boolean)
+      .join("; ");
   }
 
   async function onSubmit(e) {
@@ -54,21 +109,14 @@ export default function SignInPage() {
         throw new Error("No token returned from server");
       }
 
-      // Store token in a client cookie (30 days)
-      const isProd =
-        typeof window !== "undefined" && window.location.protocol === "https:";
-      const cookie = [
-        `token=${token}`,
-        "Path=/",
-        `Max-Age=${60 * 60 * 24 * 30}`,
-        "SameSite=Lax",
-        isProd ? "Secure" : null,
-      ]
-        .filter(Boolean)
-        .join("; ");
-      document.cookie = cookie;
+      // 🔄 Clean up any old token cookies (host-only / wrong attrs)
+      deleteOldTokenCookies();
+
+      // ✅ Set cross-subdomain cookie for app + api
+      setTokenCookie(token);
 
       // Optional: quick verify so user sees groups immediately
+      // (kept as-is; not strictly required)
       try {
         await fetch("/api/proxy/auth/me", {
           headers: { Authorization: `Bearer ${token}` },
