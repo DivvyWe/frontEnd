@@ -95,7 +95,6 @@ export default function PushTest({ className = "" }) {
         Tip: Desktop shows the native prompt only after clicking{" "}
         <em>Enable notifications</em>. If you previously clicked “Block”, reset
         site permissions in your browser’s site settings for{" "}
-        <code>http://localhost:3000</code>.
       </p>
     </div>
   );

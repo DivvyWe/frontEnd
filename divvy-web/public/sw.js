@@ -14,7 +14,7 @@ export {};
  */
 
 const APP_NAME = "Divsez";
-const SW_VERSION = "v8";
+const SW_VERSION = "v9";
 const CACHE_NAME = `Divsez-cache-${SW_VERSION}`;
 
 // Precache these (adjust if needed)
@@ -22,9 +22,9 @@ const PRECACHE_URLS = [
   "/", // app shell
   "/offline", // optional fallback page
   "/manifest.webmanifest",
-  "/favicon.ico", // keep if you have it
-  "/icons/favicon-16.png", // referenced in layout.js
-  "/icons/apple-touch-icon.png", // referenced in layout.js
+  "/favicon.ico",
+  "/icons/favicon-16.png",
+  "/icons/apple-touch-icon.png",
   "/icons/icon-192.png",
   "/icons/icon-192-maskable.png",
   "/icons/icon-512.png",
@@ -81,12 +81,13 @@ self.addEventListener("activate", (event) => {
 // Allow page to trigger skipWaiting or clean caches
 self.addEventListener("message", (event) => {
   const data = event?.data;
-  if (!data) return;
+  if (!data) return false;
 
   if (data.type === "SKIP_WAITING") {
     self.skipWaiting();
-    return;
+    return false;
   }
+
   if (data.type === "CLEAN_CACHES") {
     event.waitUntil(
       (async () => {
@@ -95,6 +96,9 @@ self.addEventListener("message", (event) => {
       })()
     );
   }
+
+  // ✅ Explicitly return false so the browser doesn’t think we’ll reply later
+  return false;
 });
 
 /* -------------------------- Fetch (strategies) -------------------------- */
@@ -253,18 +257,17 @@ self.addEventListener("notificationclick", (event) => {
 
   event.waitUntil(
     (async () => {
-      const all = await clients.matchAll({
-        type: "window",
-        includeUncontrolled: true,
-      });
+      try {
+        const all = await clients.matchAll({
+          type: "window",
+          includeUncontrolled: true,
+        });
 
-      for (const client of all) {
-        try {
-          const sameOrigin =
+        for (const client of all) {
+          const same =
             client.url && client.url.startsWith(self.location.origin);
-          if (!sameOrigin) continue;
+          if (!same) continue;
 
-          // Focus existing window if possible
           if ("focus" in client) await client.focus();
 
           // Try SPA handoff first
@@ -275,12 +278,12 @@ self.addEventListener("notificationclick", (event) => {
           // If page can't handle it, hard navigate
           if ("navigate" in client) return client.navigate(url);
           return;
-        } catch {}
-      }
+        }
 
-      // No existing window — open a new one
-      if (clients.openWindow) {
-        return clients.openWindow(url);
+        // No existing window — open a new one
+        if (clients.openWindow) return clients.openWindow(url);
+      } catch (err) {
+        console.warn("[SW] notificationclick error:", err);
       }
     })()
   );

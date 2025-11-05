@@ -15,8 +15,7 @@ function getOrigin(h) {
   const host =
     h.get("x-forwarded-host") ||
     h.get("host") ||
-    process.env.NEXT_PUBLIC_SITE_HOST ||
-    "localhost:3000";
+    process.env.NEXT_PUBLIC_SITE_HOST;
 
   return `${proto}://${host}`;
 }
