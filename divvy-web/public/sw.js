@@ -16,7 +16,7 @@ export {};
  */
 
 const APP_NAME = "Divsez";
-const SW_VERSION = "v10";
+const SW_VERSION = "v11"; // bump on deploy
 const CACHE_NAME = `Divsez-cache-${SW_VERSION}`;
 
 // Precache these (adjust if needed)

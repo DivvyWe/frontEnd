@@ -56,26 +56,37 @@ export default function SignInPage() {
       const token = data?.token;
       if (!token) throw new Error("No token returned from server");
 
-      // Store token in a client cookie (30 days)
+      // ---- Cookie normalization: remove legacy duplicates named "token"
+      try {
+        // Remove host-only token
+        document.cookie = "token=; Path=/; Max-Age=0; SameSite=Lax; Secure";
+        // Remove domain-scoped token (e.g., .divsez.com)
+        const parts = (
+          typeof window !== "undefined" ? window.location.hostname : ""
+        )
+          .split(".")
+          .slice(-2)
+          .join(".");
+        if (parts) {
+          document.cookie = `token=; Path=/; Domain=.${parts}; Max-Age=0; SameSite=Lax; Secure`;
+        }
+      } catch {}
+
+      // ---- Set ONE canonical cookie name (host-only to avoid cross-subdomain bleed)
       const isProd =
         typeof window !== "undefined" && window.location.protocol === "https:";
-      const domain =
-        typeof window !== "undefined"
-          ? `Domain=.${window.location.hostname.split(".").slice(-2).join(".")}`
-          : null;
       const cookie = [
-        `token=${token}`,
+        `dsz_token=${token}`,
         "Path=/",
-        `Max-Age=${60 * 60 * 24 * 30}`,
+        `Max-Age=${60 * 60 * 24 * 30}`, // 30 days
         "SameSite=Lax",
-        domain,
         isProd ? "Secure" : null,
       ]
         .filter(Boolean)
         .join("; ");
       document.cookie = cookie;
 
-      // Optional quick verify
+      // Optional quick verify (Bearer header, not cookie)
       try {
         await fetch("/api/proxy/auth/me", {
           headers: { Authorization: `Bearer ${token}` },

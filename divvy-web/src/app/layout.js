@@ -48,7 +48,7 @@ export default function RootLayout({ children }) {
       >
         <PushClickHandler />
 
-        {/* ------------- Service Worker (HTTPS or localhost) ------------- */}
+        {/* -------- Service Worker registration -------- */}
         <Script id="sw-register" strategy="afterInteractive">{`
           (function () {
             if (typeof window === 'undefined' || !('serviceWorker' in navigator)) return;
@@ -56,7 +56,7 @@ export default function RootLayout({ children }) {
             var isHttps = location.protocol === 'https:';
             if (!isLocal && !isHttps) return;
 
-            // Avoid duplicate registration during HMR / soft navigations
+            // Avoid re-registering during HMR / soft nav
             if (navigator.serviceWorker.controller && window.__swReg) return;
 
             navigator.serviceWorker.register('/sw.js', { type: 'module', scope: '/' })
@@ -95,14 +95,12 @@ export default function RootLayout({ children }) {
           })();
         `}</Script>
 
-        {/* ---------------- PWA install hooks — phones only ---------------- */}
+        {/* -------- PWA install hooks (mobile only) -------- */}
         <Script id="pwa-install-hooks" strategy="afterInteractive">{`
           (function () {
             var NEVER_SHOW_KEY = 'pwa-never-show';
 
-            function isiPhone() {
-              return /iphone|ipod/i.test(navigator.userAgent || '');
-            }
+            function isiPhone() { return /iphone|ipod/i.test(navigator.userAgent || ''); }
             function isPhoneLike() {
               var ua = navigator.userAgent || '';
               var mobileHints = /(android|iphone|ipod|windows phone|blackberry|iemobile)/i.test(ua);
@@ -111,7 +109,8 @@ export default function RootLayout({ children }) {
             }
             function isStandalone() {
               try {
-                return (window.matchMedia && window.matchMedia('(display-mode: standalone)').matches) || (window.navigator.standalone === true);
+                return (window.matchMedia && window.matchMedia('(display-mode: standalone)').matches)
+                  || (window.navigator.standalone === true);
               } catch { return false; }
             }
             function neverShow() {
@@ -123,7 +122,12 @@ export default function RootLayout({ children }) {
               return;
             }
 
-            window.__pwa = window.__pwa || { deferredPrompt: null, canInstall: false, installed: false, isIOS: isiPhone() };
+            window.__pwa = window.__pwa || {
+              deferredPrompt: null,
+              canInstall: false,
+              installed: false,
+              isIOS: isiPhone(),
+            };
 
             // Android native flow
             window.addEventListener('beforeinstallprompt', function (e) {
@@ -158,13 +162,12 @@ export default function RootLayout({ children }) {
 
             // Fire once on load
             maybeDispatchIOSTip('load');
-
-            // Re-check on tab visibility changes
+            // Re-check on visibility
             document.addEventListener('visibilitychange', function () {
               if (!document.hidden) maybeDispatchIOSTip('visibilitychange');
             });
 
-            // Manual trigger (respects NEVER_SHOW)
+            // Manual trigger
             window.openInstallBanner = function () {
               if (neverShow()) {
                 console.debug('[PWA] manual open blocked by NEVER_SHOW');
@@ -172,7 +175,9 @@ export default function RootLayout({ children }) {
               }
               var preferAndroid = !!(window.__pwa && window.__pwa.canInstall && window.__pwa.deferredPrompt);
               console.debug('[PWA] manual open banner; preferAndroid=', preferAndroid);
-              window.dispatchEvent(new CustomEvent('pwa:open-banner', { detail: { preferAndroid: preferAndroid } }));
+              window.dispatchEvent(new CustomEvent('pwa:open-banner', {
+                detail: { preferAndroid: preferAndroid }
+              }));
             };
           })();
         `}</Script>
