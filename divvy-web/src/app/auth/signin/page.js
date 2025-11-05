@@ -228,7 +228,7 @@ export default function SignInPage() {
             {/* Forgot password */}
             <div className="flex items-center justify-end">
               <a
-                href="#"
+                href="/auth/forgot-password"
                 className="text-sm font-medium text-slate-700 hover:text-[#84CC16]"
               >
                 Forgot password?

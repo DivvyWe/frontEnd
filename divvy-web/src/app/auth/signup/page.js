@@ -1,6 +1,6 @@
 "use client";
 
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 import {
   FiUser,
@@ -20,22 +20,34 @@ const STRONG_PWD_RE = /^(?=.*[a-z])(?=.*[A-Z])(?=.*\d)(?=.*[^\w\s]).{8,}$/;
 
 export default function SignUpPage() {
   const router = useRouter();
+
+  // form fields
   const [fullName, setFullName] = useState("");
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
   const [confirm, setConfirm] = useState("");
+
+  // ui state
   const [showPw, setShowPw] = useState(false);
   const [showPw2, setShowPw2] = useState(false);
   const [agree, setAgree] = useState(false);
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState("");
 
+  // verification flow
+  const [verifyMode, setVerifyMode] = useState(false); // true after successful register
+  const [verifyEmail, setVerifyEmail] = useState(""); // frozen email used for register
+  const [resending, setResending] = useState(false);
+  const [cooldown, setCooldown] = useState(0);
+  const cooldownTimer = useRef(null);
+
+  useEffect(() => {
+    return () => {
+      if (cooldownTimer.current) clearInterval(cooldownTimer.current);
+    };
+  }, []);
+
   const validEmail = EMAIL_RE.test(email.trim());
-  const meetsLength = password.length >= 8;
-  const hasUpper = /[A-Z]/.test(password);
-  const hasLower = /[a-z]/.test(password);
-  const hasNumber = /\d/.test(password);
-  const hasSpecial = /[^\w\s]/.test(password);
   const strongPwd = STRONG_PWD_RE.test(password);
   const matches = confirm === password && password.length > 0;
 
@@ -100,8 +112,10 @@ export default function SignUpPage() {
         throw new Error(data?.message || "Registration failed");
       }
 
-      // Optionally route to a “Check your email” page if you require verification
-      router.replace("/groups");
+      // ✅ Do NOT auto-login. Ask user to verify email.
+      setVerifyEmail(email.trim());
+      setVerifyMode(true);
+      startCooldown(30); // 30s resend cooldown
     } catch (err) {
       setError(err.message || "Registration failed");
     } finally {
@@ -109,17 +123,120 @@ export default function SignUpPage() {
     }
   }
 
-  const Rule = ({ ok, label }) => (
-    <div className="flex items-center gap-2 text-xs">
-      <FiCheckCircle
-        className={`h-4 w-4 ${ok ? "text-emerald-600" : "text-slate-400"}`}
-      />
-      <span className={ok ? "text-emerald-700" : "text-slate-500"}>
-        {label}
-      </span>
-    </div>
-  );
+  function startCooldown(seconds) {
+    setCooldown(seconds);
+    if (cooldownTimer.current) clearInterval(cooldownTimer.current);
+    cooldownTimer.current = setInterval(() => {
+      setCooldown((prev) => {
+        if (prev <= 1) {
+          clearInterval(cooldownTimer.current);
+          return 0;
+        }
+        return prev - 1;
+      });
+    }, 1000);
+  }
 
+  async function onResend() {
+    if (!verifyEmail || resending || cooldown > 0) return;
+    setResending(true);
+    setError("");
+    try {
+      const res = await fetch("/api/auth/resend-verification", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ email: verifyEmail }),
+      });
+
+      if (!res.ok) {
+        const j = await res.json().catch(() => ({}));
+        throw new Error(j?.message || "Could not resend verification email");
+      }
+      startCooldown(30);
+    } catch (e) {
+      setError(e.message || "Could not resend verification email");
+    } finally {
+      setResending(false);
+    }
+  }
+
+  // Success / verify view
+  if (verifyMode) {
+    return (
+      <main className="min-h-screen grid place-items-center py-10 px-4 bg-[radial-gradient(60rem_40rem_at_20%_0%,#dcfce7_0%,transparent_60%),radial-gradient(50rem_30rem_at_100%_100%,#f7fee7_0%,transparent_60%)]">
+        <div className="w-full max-w-md">
+          <div className="mb-6 flex items-center gap-2 justify-center">
+            <Image
+              src="/icons/icon-192.png"
+              alt="Divsez logo"
+              width={40}
+              height={40}
+              priority
+              className="h-10 w-10 rounded-xl"
+            />
+            <div className="text-xl font-semibold text-[#84CC16]">Divsez</div>
+          </div>
+
+          <div className="rounded-2xl border border-emerald-200 bg-emerald-50/70 shadow-lg shadow-emerald-100/60 backdrop-blur p-6 sm:p-8">
+            <h1 className="text-xl font-semibold text-emerald-900">
+              Verify your email
+            </h1>
+            <p className="mt-2 text-sm text-emerald-900/80">
+              We’ve sent a verification link to{" "}
+              <span className="font-semibold">{verifyEmail}</span>. Please open
+              it to activate your account. You can only sign in **after**
+              verification.
+            </p>
+
+            <div className="mt-4 space-y-2 text-sm text-emerald-900/80">
+              <p>Didn’t get the email?</p>
+              <ul className="list-disc pl-5">
+                <li>Check your spam or junk folder.</li>
+                <li>
+                  Ensure <span className="font-mono">noreply@divsez.com</span>{" "}
+                  is allowed.
+                </li>
+              </ul>
+            </div>
+
+            <div className="mt-6 flex flex-col sm:flex-row gap-3">
+              <button
+                type="button"
+                disabled={resending || cooldown > 0}
+                onClick={onResend}
+                className={`inline-flex items-center justify-center rounded-lg px-3 py-2.5 font-semibold transition active:scale-[0.99] ${
+                  resending || cooldown > 0
+                    ? "bg-slate-300 text-white cursor-not-allowed"
+                    : "bg-[#84CC16] text-white hover:bg-[#76b514]"
+                }`}
+              >
+                {resending
+                  ? "Resending…"
+                  : cooldown > 0
+                  ? `Resend in ${cooldown}s`
+                  : "Resend verification email"}
+              </button>
+
+              <button
+                type="button"
+                onClick={() => router.push("/auth/signin")}
+                className="inline-flex items-center justify-center rounded-lg border border-slate-300 bg-white px-3 py-2.5 font-medium text-slate-700 hover:bg-slate-50"
+              >
+                Back to Sign in
+              </button>
+            </div>
+
+            <p className="mt-6 text-xs text-emerald-900/70">
+              If you accidentally closed the link, you can always come back and
+              request another verification email.
+            </p>
+          </div>
+        </div>
+      </main>
+    );
+  }
+
+  // Default: signup form
   return (
     <main className="min-h-screen grid place-items-center py-10 px-4 bg-[radial-gradient(60rem_40rem_at_20%_0%,#dcfce7_0%,transparent_60%),radial-gradient(50rem_30rem_at_100%_100%,#f7fee7_0%,transparent_60%)]">
       <div className="w-full max-w-md">
@@ -294,7 +411,6 @@ export default function SignUpPage() {
               )}
             </div>
 
-            {/* Confirm */}
             {/* Confirm Password */}
             <div>
               <label
@@ -326,7 +442,6 @@ export default function SignUpPage() {
                 </button>
               </div>
 
-              {/* Inline match message */}
               {confirm.length > 0 && (
                 <p
                   className={`mt-1 text-xs font-medium ${
