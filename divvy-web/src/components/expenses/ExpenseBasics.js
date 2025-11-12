@@ -220,7 +220,7 @@ export default function ExpenseBasics({
       </div>
 
       {/* Receipt uploader */}
-      <div>
+      {/* <div>
         <div className="flex items-center justify-between">
           <label className="block text-sm font-medium text-slate-700">
             Receipt (optional)
@@ -228,7 +228,6 @@ export default function ExpenseBasics({
           <span className="text-xs text-slate-500">
             Limit: 2 image parses per day
           </span>
-          {/* Parse status */}
           {parsing ? (
             <span className="inline-flex items-center gap-1.5 rounded-full bg-slate-100 px-2 py-1 text-xs font-medium text-slate-600">
               <Loader2 className="h-3.5 w-3.5 animate-spin" /> Parsing…
@@ -244,7 +243,6 @@ export default function ExpenseBasics({
           ) : null}
         </div>
 
-        {/* Dropzone */}
         <div
           onDragOver={handleDragOver}
           onDragLeave={handleDragLeave}
@@ -283,7 +281,6 @@ export default function ExpenseBasics({
           ) : (
             <div className="flex items-center gap-3">
               <div className="h-14 w-14 flex-none overflow-hidden rounded-md ring-1 ring-slate-200">
-                {/* eslint-disable-next-line @next/next/no-img-element */}
                 <img
                   src={localImageUrl}
                   alt="Receipt preview"
@@ -333,7 +330,6 @@ export default function ExpenseBasics({
           />
         </div>
 
-        {/* Parsed preview */}
         {preview &&
         (preview.description || preview.amount || preview.rawText) ? (
           <div className="mt-3 space-y-2 rounded-md border border-slate-200 bg-white p-3">
@@ -367,7 +363,7 @@ export default function ExpenseBasics({
             </p>
           </div>
         ) : null}
-      </div>
+      </div> */}
     </div>
   );
 }
