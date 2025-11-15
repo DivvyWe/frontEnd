@@ -2,7 +2,12 @@
 import Link from "next/link";
 import { Settings } from "lucide-react";
 
-export default function GroupHeader({ groupName, groupId, isMember = false }) {
+export default function GroupHeader({
+  groupName,
+  groupId,
+  isMember = false,
+  currency, // ✅ NEW PROP
+}) {
   return (
     <header className="flex w-full flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
       {/* Row 1: Title + Settings (mobile-only) */}
@@ -11,7 +16,16 @@ export default function GroupHeader({ groupName, groupId, isMember = false }) {
           <h1 className="truncate text-2xl font-semibold text-slate-900">
             {groupName}
           </h1>
-          <p className="text-sm text-slate-500">Group details & activity</p>
+
+          {/* 👇 NEW: Currency display */}
+          <p className="text-sm text-slate-500">
+            Group details & activity
+            {currency ? (
+              <span className="ml-2 text-xs text-slate-400">
+                • Currency: <span className="font-medium">{currency}</span>
+              </span>
+            ) : null}
+          </p>
         </div>
 
         {/* ⚙️ Mobile-only settings icon */}

@@ -1,13 +1,38 @@
 // components/expense/ExpenseHeaderCard.jsx
 "use client";
 
-const fmt = (n) => `$${(Number(n) || 0).toFixed(2)}`;
+const FALLBACK_CURRENCY = process.env.NEXT_PUBLIC_CURRENCY || "AUD";
 
-export default function ExpenseHeaderCard({ expense }) {
+function makeCurrencyFormatter(code) {
+  const currency = String(code || FALLBACK_CURRENCY || "AUD")
+    .trim()
+    .toUpperCase();
+
+  try {
+    return new Intl.NumberFormat(undefined, {
+      style: "currency",
+      currency,
+      currencyDisplay: "symbol",
+      maximumFractionDigits: 2,
+    });
+  } catch {
+    // Fallback to AUD if something is off
+    return new Intl.NumberFormat(undefined, {
+      style: "currency",
+      currency: "AUD",
+      currencyDisplay: "symbol",
+      maximumFractionDigits: 2,
+    });
+  }
+}
+
+export default function ExpenseHeaderCard({ expense, currency }) {
   if (!expense) return null;
 
   const amount = Number(expense.amount) || 0;
   const createdAt = expense.createdAt ? new Date(expense.createdAt) : null;
+
+  const currencyFmt = makeCurrencyFormatter(currency);
 
   // Helpers
   const getId = (u) => (typeof u === "object" ? u?._id : u);
@@ -48,7 +73,6 @@ export default function ExpenseHeaderCard({ expense }) {
   const uniqContrib = uniq(contributors);
   const uniqPart = uniq(participants);
 
-  // 🔹 Singular/plural label for contributors
   const contribLabel =
     uniqContrib.length === 1 ? "Contributor" : "Contributors";
 
@@ -69,7 +93,7 @@ export default function ExpenseHeaderCard({ expense }) {
 
         <div className="shrink-0 text-right">
           <div className="text-2xl sm:text-3xl font-bold tracking-tight">
-            {fmt(amount)}
+            {currencyFmt.format(amount)}
           </div>
         </div>
       </div>
@@ -79,7 +103,7 @@ export default function ExpenseHeaderCard({ expense }) {
         <Stat label="Split type" value={expense.splitType || "equal"} />
 
         <PeopleStat
-          label={contribLabel} // 👈 dynamic label here
+          label={contribLabel}
           people={uniqContrib}
           initials={initials}
         />

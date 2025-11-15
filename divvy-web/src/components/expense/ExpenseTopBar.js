@@ -6,7 +6,7 @@ import { useRouter } from "next/navigation";
 import Link from "next/link";
 import ConfirmDialog from "@/components/ui/ConfirmDialog";
 
-export default function ExpenseTopBar({ groupId, expenseId }) {
+export default function ExpenseTopBar({ groupId, expenseId, currency }) {
   const router = useRouter();
   const detailsRef = useRef(null);
 
@@ -43,7 +43,6 @@ export default function ExpenseTopBar({ groupId, expenseId }) {
       router.replace(`/groups/${groupId}`);
     } catch (e) {
       setDeleting(false);
-      // You can swap this alert for a toast if you have one
       alert(e.message || "Failed to delete expense. Please try again.");
     }
   }
@@ -51,6 +50,7 @@ export default function ExpenseTopBar({ groupId, expenseId }) {
   return (
     <>
       <div className="flex items-center justify-between">
+        {/* BACK BUTTON + currency */}
         <Link
           href={`/groups/${groupId}`}
           aria-label="Back to group"
@@ -59,9 +59,11 @@ export default function ExpenseTopBar({ groupId, expenseId }) {
           <svg width="18" height="18" viewBox="0 0 24 24" aria-hidden="true">
             <path fill="currentColor" d="M15 18l-6-6 6-6" />
           </svg>
+
           <span className="text-sm font-medium">Back</span>
         </Link>
 
+        {/* ACTION MENU */}
         <details ref={detailsRef} className="relative">
           <summary
             aria-label="Actions"
@@ -80,6 +82,7 @@ export default function ExpenseTopBar({ groupId, expenseId }) {
               />
             </svg>
           </summary>
+
           <div className="absolute right-0 z-10 mt-1 w-44 overflow-hidden rounded-md border border-slate-200 bg-white shadow-lg">
             <button
               type="button"

@@ -1,19 +1,21 @@
 // components/groups/GroupSummary.jsx
 "use client";
 
-/**
- * GroupSummary — two-panel summary (You owe / Owed to you) with a net chip.
- * - Scrolls when items exceed panel height.
- * - Consistent with Divsez UI (rounded, clean, gradient, scroll shadow).
- */
+const FALLBACK_CURRENCY = process.env.NEXT_PUBLIC_CURRENCY || "AUD";
 
-const CURRENCY = process.env.NEXT_PUBLIC_CURRENCY || "USD";
-const currencyFmt = new Intl.NumberFormat(undefined, {
-  style: "currency",
-  currency: CURRENCY,
-  currencyDisplay: "narrowSymbol",
-  maximumFractionDigits: 2,
-});
+// Simple formatter: "CODE 1234.56"
+function makeCurrencyFormatter(code) {
+  const currency = String(code || FALLBACK_CURRENCY || "AUD")
+    .trim()
+    .toUpperCase();
+
+  return {
+    format(value) {
+      const num = Number(value || 0).toFixed(2);
+      return `${currency} ${num}`;
+    },
+  };
+}
 
 function initials(name = "") {
   const parts = String(name).trim().split(/\s+/).slice(0, 2);
@@ -22,9 +24,8 @@ function initials(name = "") {
 
 function normalizeEdgesInput(input) {
   let arr = [];
-  if (Array.isArray(input)) {
-    arr = input;
-  } else if (input && typeof input === "object") {
+  if (Array.isArray(input)) arr = input;
+  else if (input && typeof input === "object") {
     const keys = [
       "all",
       "youOwe",
@@ -32,9 +33,7 @@ function normalizeEdgesInput(input) {
       "othersOweEachOther",
       "settlements",
     ];
-    for (const k of keys) {
-      if (Array.isArray(input[k])) arr.push(...input[k]);
-    }
+    for (const k of keys) if (Array.isArray(input[k])) arr.push(...input[k]);
   }
 
   return arr
@@ -53,6 +52,7 @@ function normalizeEdgesInput(input) {
         e?.creditor ||
         e?.receiver ||
         e?.to;
+
       if (!from || !to) return null;
 
       const amount = Number(e?.amount ?? e?.total ?? e?.value ?? 0);
@@ -88,9 +88,15 @@ function normalizeEdgesInput(input) {
     .filter(Boolean);
 }
 
-export default function GroupSummary({ currentUserId, settlements = [] }) {
-  const idEq = (a, b) => String(a) === String(b);
+export default function GroupSummary({
+  currentUserId,
+  settlements = [],
+  currency,
+}) {
+  const currencyFmt = makeCurrencyFormatter(currency);
+
   const edges = normalizeEdgesInput(settlements);
+  const idEq = (a, b) => String(a) === String(b);
 
   const youOwe = edges
     .filter((e) => idEq(e.from, currentUserId))
@@ -109,9 +115,10 @@ export default function GroupSummary({ currentUserId, settlements = [] }) {
     }));
 
   const totals = {
-    owe: youOwe.reduce((s, r) => s + r.amountNum, 0),
-    owed: owedToYou.reduce((s, r) => s + r.amountNum, 0),
+    owe: youOwe.reduce((sum, r) => sum + r.amountNum, 0),
+    owed: owedToYou.reduce((sum, r) => sum + r.amountNum, 0),
   };
+
   const net = +(totals.owed - totals.owe).toFixed(2);
 
   const netChipClass =
@@ -123,18 +130,15 @@ export default function GroupSummary({ currentUserId, settlements = [] }) {
 
   return (
     <section className="rounded-2xl bg-gradient-to-br from-white to-slate-50 p-4 shadow-sm ring-1 ring-black/5">
-      {/* Header */}
       <div className="mb-4 flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
         <h2 className="text-base font-semibold text-slate-900">Your summary</h2>
         <span
           className={`inline-flex items-center gap-2 rounded-full px-3 py-1 text-sm font-medium ring-1 ${netChipClass}`}
-          title="Owed to you − You owe"
         >
           Net: {currencyFmt.format(net)}
         </span>
       </div>
 
-      {/* Panels */}
       <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
         <Panel
           title="You owe"
@@ -143,6 +147,7 @@ export default function GroupSummary({ currentUserId, settlements = [] }) {
           items={youOwe}
           pillBg="bg-rose-50"
           pillText="text-rose-700"
+          currencyFmt={currencyFmt}
         />
         <Panel
           title="Owed to you"
@@ -151,22 +156,22 @@ export default function GroupSummary({ currentUserId, settlements = [] }) {
           items={owedToYou}
           pillBg="bg-emerald-50"
           pillText="text-emerald-700"
+          currencyFmt={currencyFmt}
         />
       </div>
     </section>
   );
 }
 
-/* ---------- Panels ---------- */
 function Panel({
   title,
   total,
   emptyText,
   items,
-  pillBg = "bg-slate-50",
-  pillText = "text-slate-700",
+  pillBg,
+  pillText,
+  currencyFmt,
 }) {
-  const maxHeight = "max-h-64"; // about 10 items visible before scroll
   return (
     <div className="rounded-xl border border-slate-200/70 bg-white p-3">
       <div className="mb-2 flex items-baseline justify-between">
@@ -177,10 +182,16 @@ function Panel({
       {items.length === 0 ? (
         <p className="py-4 text-sm text-slate-500">{emptyText}</p>
       ) : (
-        <div className={`${maxHeight} overflow-y-auto pr-1 scroll-smooth`}>
+        <div className="max-h-64 overflow-y-auto pr-1 scroll-smooth">
           <ul className="space-y-2">
             {items.map((it) => (
-              <Row key={it.id} item={it} pillBg={pillBg} pillText={pillText} />
+              <Row
+                key={it.id}
+                item={it}
+                pillBg={pillBg}
+                pillText={pillText}
+                currencyFmt={currencyFmt}
+              />
             ))}
           </ul>
         </div>
@@ -189,15 +200,11 @@ function Panel({
   );
 }
 
-/* ---------- Rows ---------- */
-function Row({ item, pillBg, pillText }) {
+function Row({ item, pillBg, pillText, currencyFmt }) {
   return (
     <li className="flex items-center justify-between gap-3 rounded-lg px-1 py-0.5 hover:bg-slate-50 transition">
       <div className="flex min-w-0 items-center gap-2">
-        <div
-          className="grid h-8 w-8 shrink-0 place-items-center rounded-full bg-slate-100 text-xs font-semibold text-slate-700"
-          aria-hidden="true"
-        >
+        <div className="grid h-8 w-8 shrink-0 place-items-center rounded-full bg-slate-100 text-xs font-semibold">
           {initials(item.name)}
         </div>
         <span className="truncate text-sm text-slate-800">{item.name}</span>

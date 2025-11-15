@@ -4,11 +4,17 @@
 import Link from "next/link";
 import { useEffect, useRef, useState } from "react";
 
+function formatAmountPlain(amount, currencyCode) {
+  const num = Number(amount || 0).toFixed(2);
+  const code = String(currencyCode || "AUD").toUpperCase();
+  return `${code} ${num}`;
+}
+
 export default function GroupExpenses({
   groupId,
   sort,
   expenses = [],
-  /* NEW: behavior controls */
+  currency, // 👈 group currency code, e.g. "NPR", "AUD"
   mode = "scroll", // "scroll" | "paginate"
   maxHeight = 360, // px (applies when mode === "scroll")
   pageSize = 8, // visible count per page (when mode === "paginate")
@@ -106,39 +112,43 @@ export default function GroupExpenses({
         {hasExpenses ? (
           <>
             <ul className="divide-y divide-slate-100">
-              {shownExpenses.map((ex) => (
-                <li key={ex._id}>
-                  <Link
-                    href={`/expenses/${groupId}/${ex._id}`}
-                    className="flex items-center justify-between gap-3 rounded-lg px-2 py-3 no-underline transition-colors hover:bg-slate-50"
-                  >
-                    <div className="min-w-0">
-                      <div className="truncate text-sm font-medium text-slate-900">
-                        {ex.description || "Untitled expense"}
+              {shownExpenses.map((ex) => {
+                const displayAmount =
+                  ex.formattedAmount || formatAmountPlain(ex.amount, currency);
+                return (
+                  <li key={ex._id}>
+                    <Link
+                      href={`/expenses/${groupId}/${ex._id}`}
+                      className="flex items-center justify-between gap-3 rounded-lg px-2 py-3 no-underline transition-colors hover:bg-slate-50"
+                    >
+                      <div className="min-w-0">
+                        <div className="truncate text-sm font-medium text-slate-900">
+                          {ex.description || "Untitled expense"}
+                        </div>
+                        <div className="text-xs text-slate-500">
+                          {new Date(ex.createdAt).toLocaleString()}
+                        </div>
                       </div>
-                      <div className="text-xs text-slate-500">
-                        {new Date(ex.createdAt).toLocaleString()}
-                      </div>
-                    </div>
 
-                    <div className="shrink-0 text-right">
-                      <div className="text-sm font-semibold text-slate-900">
-                        {ex.formattedAmount || "$0.00"}
+                      <div className="shrink-0 text-right">
+                        <div className="text-sm font-semibold text-slate-900">
+                          {displayAmount}
+                        </div>
+                        <div className="ml-auto flex justify-end text-slate-400">
+                          <svg
+                            width="18"
+                            height="18"
+                            viewBox="0 0 24 24"
+                            aria-hidden="true"
+                          >
+                            <path fill="currentColor" d="M9 6l6 6-6 6" />
+                          </svg>
+                        </div>
                       </div>
-                      <div className="ml-auto flex justify-end text-slate-400">
-                        <svg
-                          width="18"
-                          height="18"
-                          viewBox="0 0 24 24"
-                          aria-hidden="true"
-                        >
-                          <path fill="currentColor" d="M9 6l6 6-6 6" />
-                        </svg>
-                      </div>
-                    </div>
-                  </Link>
-                </li>
-              ))}
+                    </Link>
+                  </li>
+                );
+              })}
             </ul>
 
             {/* Show more (paginate mode only) */}

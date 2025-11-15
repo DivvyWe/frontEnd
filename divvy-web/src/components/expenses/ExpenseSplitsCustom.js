@@ -72,8 +72,8 @@ export default function ExpenseSplitsCustom({
           {ok
             ? "Total matched"
             : remainingCents > 0
-            ? `Allocate $${fromCents(remainingCents)}`
-            : `Over by $${fromCents(-remainingCents)}`}
+            ? `Allocate ${fromCents(remainingCents)}`
+            : `Over by ${fromCents(-remainingCents)}`}
         </div>
       </div>
 
@@ -100,7 +100,6 @@ export default function ExpenseSplitsCustom({
                   </div>
 
                   <div className="flex items-center gap-1.5">
-                    <span className="text-[13px] text-slate-500">$</span>
                     <input
                       type="number"
                       inputMode="decimal"
@@ -124,13 +123,13 @@ export default function ExpenseSplitsCustom({
             <span>
               Total:{" "}
               <span className="font-mono">
-                ${Number(amount || 0).toFixed(2)}
+                {Number(amount || 0).toFixed(2)}
               </span>
             </span>
             <span>
               Assigned:{" "}
               <span className="font-mono" style={{ color: BRAND }}>
-                ${fromCents(sumCents)}
+                {fromCents(sumCents)}
               </span>
             </span>
           </div>

@@ -59,7 +59,7 @@ export default function ExpenseSplitsEqual({
         <div className="text-xs text-slate-500">
           Total:{" "}
           <span className="font-semibold">
-            ${Number(amount || 0).toFixed(2)}
+            {Number(amount || 0).toFixed(2)}
           </span>{" "}
           • Distributed: <span className="font-mono">{totalShown}</span>
         </div>
@@ -83,7 +83,7 @@ export default function ExpenseSplitsEqual({
               <div
                 key={r.id}
                 className="inline-flex items-center gap-2 rounded-full border border-slate-200 bg-white px-2.5 py-1.5 text-xs"
-                title={`${r.name}: $${r.share}`}
+                title={`${r.name}: ${r.share}`}
               >
                 <span className="max-w-[9rem] truncate text-slate-700">
                   {r.name}
@@ -100,7 +100,7 @@ export default function ExpenseSplitsEqual({
                   className="inline-flex items-center gap-1 font-mono font-medium"
                   style={{ color: BRAND }}
                 >
-                  ${r.share}
+                  {r.share}
                   <svg
                     viewBox="0 0 20 20"
                     className="h-3.5 w-3.5"

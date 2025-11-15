@@ -7,7 +7,6 @@ import ExpenseHeaderCard from "@/components/expense/ExpenseHeaderCard";
 import ExpenseMessages from "@/components/expense/ExpenseMessages";
 
 export const dynamic = "force-dynamic";
-const fmt = (n) => `$${(Number(n) || 0).toFixed(2)}`;
 
 // helpers for names/avatars
 const getId = (u) => (typeof u === "object" ? u?._id : u);
@@ -71,11 +70,11 @@ export default async function ExpensePage(props) {
     cache: "no-store",
   };
 
-  // Fetch expense
-  const apiUrl = `${base}/api/proxy/expenses/${groupId}/expense/${expenseId}`;
+  // ===== 1) Fetch expense =====
+  const expenseUrl = `${base}/api/proxy/expenses/${groupId}/expense/${expenseId}`;
   let res;
   try {
-    res = await fetch(apiUrl, common);
+    res = await fetch(expenseUrl, common);
   } catch {
     res = null;
   }
@@ -117,12 +116,60 @@ export default async function ExpensePage(props) {
     );
   }
 
+  // ===== 2) Fetch group to get currency (live from backend) =====
+  let groupCurrency = process.env.NEXT_PUBLIC_CURRENCY || "USD"; // sane fallback
+
+  try {
+    const groupRes = await fetch(
+      `${base}/api/proxy/groups/${groupId}`,
+      common
+    ).catch(() => null);
+
+    if (groupRes) {
+      if ([401, 403].includes(groupRes.status)) {
+        redirect("/auth/signin");
+      }
+      if (groupRes.ok) {
+        const groupJson = await groupRes.json().catch(() => null);
+        const groupDoc = groupJson?.group || groupJson || null;
+        if (groupDoc && typeof groupDoc.currency === "string") {
+          groupCurrency = groupDoc.currency.trim().toUpperCase();
+        }
+      }
+    }
+  } catch {
+    // ignore and keep fallback
+  }
+
+  // ===== 3) Build currency formatter based on group currency =====
+  let moneyFormatter;
+  try {
+    moneyFormatter = new Intl.NumberFormat(undefined, {
+      style: "currency",
+      currency: groupCurrency,
+      currencyDisplay: "symbol",
+      maximumFractionDigits: 2,
+    });
+  } catch {
+    moneyFormatter = new Intl.NumberFormat(undefined, {
+      style: "currency",
+      currency: "USD",
+      currencyDisplay: "symbol",
+      maximumFractionDigits: 2,
+    });
+  }
+  const fmt = (n) => moneyFormatter.format(Number(n) || 0);
+
   const splits = Array.isArray(expense.splits) ? expense.splits : [];
   const allPaid = false; // per-expense payments aren’t tracked; keep pending
 
   return (
     <div className="mx-auto max-w-screen-lg px-4 sm:px-6 py-4 sm:py-6 space-y-4">
-      <ExpenseTopBar groupId={groupId} expenseId={expenseId} />
+      <ExpenseTopBar
+        groupId={groupId}
+        expenseId={expenseId}
+        currency={groupCurrency}
+      />
 
       <div className="grid grid-cols-1 gap-4 lg:grid-cols-12">
         {/* Main column now full width */}
@@ -130,6 +177,7 @@ export default async function ExpensePage(props) {
           <ExpenseHeaderCard
             expense={expense}
             status={allPaid ? "paid" : "pending"}
+            currency={groupCurrency}
           />
 
           {/* Who paid */}
@@ -188,7 +236,7 @@ export default async function ExpensePage(props) {
             </ul>
           </section>
 
-          {/* Messages */}
+          {/* Messages (still optional) */}
           {/* <ExpenseMessages expenseId={expenseId} /> */}
 
           <div className="flex justify-between pt-2">

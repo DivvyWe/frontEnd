@@ -8,7 +8,26 @@ const toTitle = (s = "") =>
   String(s)
     .toLowerCase()
     .replace(/\b\w/g, (m) => m.toUpperCase());
-const fmt = (n) => `$${(Number(n) || 0).toFixed(2)}`;
+
+const FALLBACK_CURRENCY = process.env.NEXT_PUBLIC_CURRENCY || "AUD";
+
+// Generic currency formatter: "CODE 1,234.56" (e.g. "NPR 120.00", "AUD 50.00")
+function makeCurrencyFormatter(code) {
+  const currency = String(code || FALLBACK_CURRENCY || "AUD")
+    .trim()
+    .toUpperCase();
+
+  return {
+    format(value) {
+      const num = Number(value || 0);
+      const formatted = num.toLocaleString("en-US", {
+        minimumFractionDigits: 2,
+        maximumFractionDigits: 2,
+      });
+      return `${currency} ${formatted}`;
+    },
+  };
+}
 
 function CheckIcon({ className = "h-4 w-4" }) {
   return (
@@ -35,8 +54,13 @@ function YouBadge() {
   );
 }
 
-export default function AddSettlementForm({ groupId }) {
+export default function AddSettlementForm({ groupId, currency }) {
   const router = useRouter();
+
+  const currencyFmt = useMemo(
+    () => makeCurrencyFormatter(currency),
+    [currency]
+  );
 
   const [me, setMe] = useState(null);
   const [members, setMembers] = useState([]);
@@ -193,7 +217,9 @@ export default function AddSettlementForm({ groupId }) {
     if (!amtNum || amtNum <= 0)
       return setError("Enter a valid amount greater than 0.");
     if (amtNum > stillMax + 0.001) {
-      return setError(`You can’t pay more than ${fmt(stillMax)}.`);
+      return setError(
+        `You can’t pay more than ${currencyFmt.format(stillMax)}.`
+      );
     }
 
     try {
@@ -204,6 +230,9 @@ export default function AddSettlementForm({ groupId }) {
       fd.append("groupId", String(groupId));
       fd.append("to", String(toUserId));
       fd.append("amount", String(amtNum));
+      if (currency) {
+        fd.append("currency", String(currency));
+      }
       // 🔕 No proof upload for now
 
       const res = await fetch(`/api/proxy/settlements`, {
@@ -241,7 +270,7 @@ export default function AddSettlementForm({ groupId }) {
           You’re all settled up in this group. 🎉
         </div>
         <div className="mt-3 flex items-center justify-between text-xs text-slate-600">
-          <span>Total owed: {fmt(0)}</span>
+          <span>Total owed: {currencyFmt.format(0)}</span>
           <button
             type="button"
             onClick={() => router.back()}
@@ -272,7 +301,9 @@ export default function AddSettlementForm({ groupId }) {
           <label className="block text-sm font-medium text-slate-700">
             You owe
           </label>
-          <span className="text-xs text-slate-600">Total: {fmt(totalOwe)}</span>
+          <span className="text-xs text-slate-600">
+            Total: {currencyFmt.format(totalOwe)}
+          </span>
         </div>
 
         {loadingMembers ? (
@@ -305,7 +336,7 @@ export default function AddSettlementForm({ groupId }) {
                       {String(m?._id || m?.id) === String(myId) && <YouBadge />}
                     </span>
                     <span className="shrink-0 font-semibold text-emerald-700">
-                      {fmt(row.amount)}
+                      {currencyFmt.format(row.amount)}
                     </span>
                   </button>
                 </li>
@@ -322,7 +353,10 @@ export default function AddSettlementForm({ groupId }) {
             <div className="text-xs text-slate-600">
               Paying <span className="font-semibold">{selectedName}</span>. You
               can pay up to{" "}
-              <span className="font-semibold">{fmt(selectedMax)}</span>.
+              <span className="font-semibold">
+                {currencyFmt.format(selectedMax)}
+              </span>
+              .
             </div>
             <div className="flex items-center gap-2">
               <button
@@ -357,7 +391,9 @@ export default function AddSettlementForm({ groupId }) {
                 <div className="mt-1 text-[11px] text-slate-500">
                   Remaining after payment:{" "}
                   <span className="font-semibold">
-                    {fmt(Math.max(0, selectedMax - Number(amount)))}
+                    {currencyFmt.format(
+                      Math.max(0, selectedMax - Number(amount))
+                    )}
                   </span>
                 </div>
               ) : (
@@ -368,7 +404,7 @@ export default function AddSettlementForm({ groupId }) {
               )}
             </div>
 
-            {/* Proof upload removed intentionally */}
+            {/* Proof upload intentionally omitted */}
           </div>
 
           <div className="flex items-center justify-end gap-2">

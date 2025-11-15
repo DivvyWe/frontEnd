@@ -1,7 +1,7 @@
 // src/components/groups/GroupSettingsModal.jsx
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useState, useRef } from "react";
 import { useRouter } from "next/navigation";
 import {
   X,
@@ -13,6 +13,7 @@ import {
   Pencil,
   Save,
   Loader2,
+  Globe2,
 } from "lucide-react";
 import ConfirmDialog from "@/components/ui/ConfirmDialog";
 
@@ -300,12 +301,100 @@ function GeneralSection({ group, isOwner, groupId, onRenamed }) {
   const [saving, setSaving] = useState(false);
   const dirty = name.trim() && name.trim() !== (group?.name || "");
 
+  // 💰 Currency state
+  const [currency, setCurrency] = useState(group?.currency || "AUD");
+  const [originalCurrency, setOriginalCurrency] = useState(
+    group?.currency || "AUD"
+  );
+  const [currencies, setCurrencies] = useState([]);
+  const [currencyLoading, setCurrencyLoading] = useState(false);
+  const [savingCurrency, setSavingCurrency] = useState(false);
+
+  const CURRENCIES_ENDPOINT = "/api/proxy/groups/currencies";
+
+  // keep local state in sync with group prop
+  useEffect(() => {
+    setName(group?.name || "");
+    const cur = group?.currency || "AUD";
+    setCurrency(cur);
+    setOriginalCurrency(cur);
+  }, [group?.name, group?.currency]);
+
+  // fetch currencies
+  useEffect(() => {
+    let cancelled = false;
+
+    async function loadCurrencies() {
+      setCurrencyLoading(true);
+      try {
+        const res = await fetch(CURRENCIES_ENDPOINT, {
+          method: "GET",
+          headers: { Accept: "application/json" },
+        });
+        if (!res.ok) throw new Error("Failed to fetch currencies");
+        const data = await res.json().catch(() => ({}));
+        if (cancelled) return;
+
+        const list = Array.isArray(data?.currencies) ? data.currencies : [];
+        setCurrencies(list);
+
+        // if group has no currency yet, pick a sensible default (AUD or locale-based)
+        if (!group?.currency) {
+          let guessed = "AUD";
+          try {
+            if (typeof navigator !== "undefined") {
+              const locale =
+                navigator.language || navigator.languages?.[0] || "";
+              const parts = locale.split("-");
+              const region = (parts[1] || "").toUpperCase();
+              const regionToCurrency = {
+                AU: "AUD",
+                US: "USD",
+                GB: "GBP",
+                IN: "INR",
+                NZ: "NZD",
+                CA: "CAD",
+                SG: "SGD",
+                EU: "EUR",
+              };
+              const maybe = regionToCurrency[region];
+              if (maybe && list.some((c) => c.code === maybe)) {
+                guessed = maybe;
+              }
+            }
+          } catch {
+            // ignore
+          }
+          setCurrency((prev) => prev || guessed || "AUD");
+          setOriginalCurrency((prev) => prev || guessed || "AUD");
+        }
+      } catch (e) {
+        console.warn("Failed to load currencies in settings:", e);
+        if (!cancelled) {
+          setCurrencies([]);
+          // fallback: keep whatever currency is already set
+        }
+      } finally {
+        if (!cancelled) setCurrencyLoading(false);
+      }
+    }
+
+    loadCurrencies();
+    return () => {
+      cancelled = true;
+    };
+  }, [groupId, group?.currency]);
+
+  const hasCurrencyList = currencies && currencies.length > 0;
+  const currencyDirty = currency && currency !== originalCurrency;
+
+  // ✅ Update name via PUT /api/proxy/groups/:groupId
   const save = async () => {
     if (!dirty || !isOwner) return;
     setSaving(true);
     try {
-      const res = await fetch(`/api/proxy/groups/${groupId}/name`, {
-        method: "PATCH",
+      const res = await fetch(`/api/proxy/groups/${groupId}`, {
+        method: "PUT",
         headers: {
           "Content-Type": "application/json",
           Accept: "application/json",
@@ -323,11 +412,36 @@ function GeneralSection({ group, isOwner, groupId, onRenamed }) {
     }
   };
 
+  // ✅ Update currency via same PUT /api/proxy/groups/:groupId
+  const saveCurrency = async () => {
+    if (!currencyDirty || !isOwner) return;
+    setSavingCurrency(true);
+    try {
+      const res = await fetch(`/api/proxy/groups/${groupId}`, {
+        method: "PUT",
+        headers: {
+          "Content-Type": "application/json",
+          Accept: "application/json",
+        },
+        body: JSON.stringify({ currency }),
+      });
+      const j = await res.json().catch(() => ({}));
+      if (!res.ok) throw new Error(j?.message || "Failed to update currency");
+      setOriginalCurrency(currency);
+      onRenamed?.(); // so parent can refresh group data
+    } catch (e) {
+      console.error(e);
+    } finally {
+      setSavingCurrency(false);
+    }
+  };
+
   return (
     <div className="space-y-4">
       <h3 className="text-sm font-semibold text-slate-900">General</h3>
 
       <div className="grid gap-3 sm:grid-cols-2">
+        {/* Group name */}
         <Field label="Group name">
           <div className="flex items-center gap-2">
             <input
@@ -374,6 +488,7 @@ function GeneralSection({ group, isOwner, groupId, onRenamed }) {
           )}
         </Field>
 
+        {/* Created at */}
         <Field label="Created at">
           <div className="rounded-md border border-slate-200 bg-slate-50 px-3 py-2 text-sm text-slate-600">
             {group?.createdAt
@@ -381,10 +496,168 @@ function GeneralSection({ group, isOwner, groupId, onRenamed }) {
               : "—"}
           </div>
         </Field>
+
+        {/* Currency */}
+        <Field label="Currency">
+          <div className="flex items-center gap-2">
+            <CurrencyDropdown
+              currencies={hasCurrencyList ? currencies : []}
+              value={currency}
+              onChange={setCurrency}
+              disabled={!isOwner || currencyLoading}
+              loading={currencyLoading}
+            />
+
+            {isOwner && (
+              <button
+                type="button"
+                disabled={!currencyDirty || savingCurrency}
+                onClick={saveCurrency}
+                className="inline-flex items-center gap-1.5 rounded-md border border-slate-300 bg-white px-3 py-2 text-xs font-medium text-slate-700 disabled:cursor-not-allowed disabled:border-slate-200 disabled:bg-slate-100 disabled:text-slate-400"
+              >
+                {savingCurrency ? (
+                  <Loader2 className="h-3 w-3 animate-spin" />
+                ) : (
+                  <Save className="h-3 w-3" />
+                )}
+                Save
+              </button>
+            )}
+          </div>
+          <p className="mt-1 text-xs text-slate-500">
+            This sets the base currency for expenses in this group.
+          </p>
+          {!isOwner && (
+            <p className="mt-1 text-xs text-slate-500">
+              Only the owner can change the currency.
+            </p>
+          )}
+        </Field>
       </div>
-      <p className="text-xs text-slate-500">
-        Avatar & description can be added later.
-      </p>
+    </div>
+  );
+}
+
+/* Searchable dropdown: type to filter, shows small list (~2 items high) then scroll */
+function CurrencyDropdown({
+  currencies = [],
+  value,
+  onChange,
+  disabled,
+  loading,
+}) {
+  const [open, setOpen] = useState(false);
+  const [query, setQuery] = useState("");
+  const ref = useRef(null);
+
+  const selected = currencies.find((c) => c.code === value);
+  const label = loading
+    ? "Loading…"
+    : selected
+    ? `${selected.code} — ${selected.name}`
+    : value
+    ? `${value} — Group currency`
+    : "Select currency";
+
+  const filtered = currencies.filter((c) => {
+    if (!query.trim()) return true;
+    const q = query.toLowerCase();
+    return (
+      c.code.toLowerCase().includes(q) ||
+      (c.name || "").toLowerCase().includes(q)
+    );
+  });
+
+  // 🔒 Close when clicking outside
+  useEffect(() => {
+    if (!open) return;
+
+    const handleClick = (e) => {
+      if (!ref.current) return;
+      if (!ref.current.contains(e.target)) {
+        setOpen(false);
+      }
+    };
+
+    window.addEventListener("mousedown", handleClick);
+    return () => window.removeEventListener("mousedown", handleClick);
+  }, [open]);
+
+  const handleSelect = (code) => {
+    onChange?.(code);
+    setOpen(false); // close dropdown
+    setQuery(""); // reset search
+    if (document.activeElement instanceof HTMLElement) {
+      document.activeElement.blur();
+    }
+  };
+
+  const handleTriggerClick = () => {
+    if (disabled) return;
+    setOpen((o) => !o);
+    // optional: reset query each time you open
+    if (!open) setQuery("");
+  };
+
+  return (
+    <div className="relative w-full" ref={ref}>
+      {/* Trigger */}
+      <button
+        type="button"
+        disabled={disabled}
+        onClick={handleTriggerClick}
+        className="w-full rounded-md border border-slate-300 bg-white px-3 py-2 text-left text-sm text-slate-700 disabled:bg-slate-50 disabled:text-slate-400"
+      >
+        {label}
+      </button>
+
+      {open && (
+        <div className="absolute z-20 mt-1 w-full rounded-lg border border-slate-200 bg-white shadow-lg">
+          {/* Search input */}
+          <div className="border-b border-slate-100 p-2">
+            <input
+              type="text"
+              value={query}
+              onChange={(e) => setQuery(e.target.value)}
+              placeholder="Search code or name…"
+              className="w-full rounded-md border border-slate-200 px-2 py-1.5 text-sm outline-none focus:border-slate-900"
+            />
+          </div>
+
+          {/* Options: ~2 items high, scroll for the rest */}
+          <div className="max-h-24 overflow-y-auto">
+            {filtered.length === 0 && (
+              <div className="p-3 text-sm text-slate-500">No matches</div>
+            )}
+
+            {filtered.map((c) => (
+              <button
+                key={c.code}
+                type="button"
+                // ⬇️ stop bubbling so the trigger button above doesn't re-toggle
+                onMouseDown={(e) => {
+                  e.preventDefault();
+                  e.stopPropagation();
+                  handleSelect(c.code);
+                }}
+                className={`flex w-full items-center justify-between px-3 py-2 text-left text-sm hover:bg-slate-100 ${
+                  c.code === value
+                    ? "bg-slate-100 text-slate-900"
+                    : "text-slate-700"
+                }`}
+              >
+                <span>
+                  <span className="font-medium">{c.code}</span>{" "}
+                  <span className="text-xs text-slate-500">{c.name}</span>
+                </span>
+                {c.code === value && (
+                  <span className="h-1.5 w-1.5 rounded-full bg-slate-900" />
+                )}
+              </button>
+            ))}
+          </div>
+        </div>
+      )}
     </div>
   );
 }

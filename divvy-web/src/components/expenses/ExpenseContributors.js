@@ -115,8 +115,8 @@ export default function ExpenseContributors({
           {ok
             ? "Total matched"
             : diff > 0
-            ? `Add $${fromCents(diff)}`
-            : `Over by $${fromCents(-diff)}`}
+            ? `Add ${fromCents(diff)}`
+            : `Over by ${fromCents(-diff)}`}
         </div>
       </div>
 
@@ -166,7 +166,7 @@ export default function ExpenseContributors({
 
                     {/* Amount + Remove */}
                     <div className="flex items-center gap-1.5">
-                      <span className="text-[13px] text-slate-500">$</span>
+                      <span className="text-[13px] text-slate-500"></span>
                       <input
                         type="number"
                         inputMode="decimal"
@@ -203,13 +203,13 @@ export default function ExpenseContributors({
             <span>
               Total:{" "}
               <span className="font-mono">
-                ${Number(totalAmount || 0).toFixed(2)}
+                {Number(totalAmount || 0).toFixed(2)}
               </span>
             </span>
             <span>
               Contributed:{" "}
               <span className="font-mono" style={{ color: BRAND }}>
-                ${fromCents(sumCents)}
+                {fromCents(sumCents)}
               </span>
             </span>
           </div>

@@ -3,7 +3,6 @@
 
 import Link from "next/link";
 import { useEffect, useMemo, useState } from "react";
-import { useRouter } from "next/navigation";
 
 /* ---------- formatting ---------- */
 const fmtMonthHeader = new Intl.DateTimeFormat(undefined, {
@@ -15,14 +14,20 @@ const fmtTime = new Intl.DateTimeFormat(undefined, {
   minute: "2-digit",
 });
 
-// Local currency formatter
-const CURRENCY = process.env.NEXT_PUBLIC_CURRENCY || "USD";
-const currencyFmt = new Intl.NumberFormat(undefined, {
-  style: "currency",
-  currency: CURRENCY,
-  currencyDisplay: "narrowSymbol",
-  maximumFractionDigits: 2,
-});
+// Fallback currency if none provided
+const FALLBACK_CURRENCY = process.env.NEXT_PUBLIC_CURRENCY || "AUD";
+
+function formatCurrencyPlain(amount, currencyCode) {
+  const num = Number(amount || 0);
+  const code = String(currencyCode || FALLBACK_CURRENCY).toUpperCase();
+
+  const formatted = num.toLocaleString(undefined, {
+    minimumFractionDigits: 2,
+    maximumFractionDigits: 2,
+  });
+
+  return `${code} ${formatted}`;
+}
 
 const titleCase = (s = "") =>
   String(s)
@@ -94,9 +99,11 @@ async function fetchActivity(groupId, limit, cursor) {
 }
 
 /* ---------- component ---------- */
-export default function GroupActivity({ groupId, pageSize = 30 }) {
-  const router = useRouter();
-
+export default function GroupActivity({
+  groupId,
+  pageSize = 30,
+  currency, // 👈 group currency code (e.g. "NPR", "AUD")
+}) {
   const [me, setMe] = useState(null);
   const [rows, setRows] = useState([]);
   const [cursor, setCursor] = useState(null);
@@ -260,14 +267,14 @@ export default function GroupActivity({ groupId, pageSize = 30 }) {
             text: "you lent",
             bg: "bg-emerald-50",
             color: "text-emerald-700",
-            amount: currencyFmt.format(net),
+            amount: formatCurrencyPlain(net, currency),
           };
         if (net < -0.009)
           return {
             text: "you borrowed",
             bg: "bg-amber-50",
             color: "text-amber-700",
-            amount: currencyFmt.format(Math.abs(net)),
+            amount: formatCurrencyPlain(Math.abs(net), currency),
           };
       }
     }
@@ -323,8 +330,8 @@ export default function GroupActivity({ groupId, pageSize = 30 }) {
 
   /* ----- render list ----- */
   return (
-    <section className="rounded-2xl bg-white p-4 mb-14  shadow-sm ring-1 ring-black/5">
-      <div className="mb-2  flex items-center justify-between">
+    <section className="rounded-2xl bg-white p-4 mb-14 shadow-sm ring-1 ring-black/5">
+      <div className="mb-2 flex items-center justify-between">
         <h2 className="text-sm font-semibold text-slate-900">Activity</h2>
       </div>
 
@@ -410,7 +417,7 @@ export default function GroupActivity({ groupId, pageSize = 30 }) {
                           ) : item.type === "payment" && item.amount ? (
                             <div className="mt-1 text-sm font-semibold text-slate-900">
                               {item.formattedAmount ??
-                                currencyFmt.format(Number(item.amount) || 0)}
+                                formatCurrencyPlain(item.amount, currency)}
                             </div>
                           ) : null}
                         </div>

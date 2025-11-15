@@ -1,8 +1,6 @@
 // src/app/groups/[groupId]/page.js
 import { headers, cookies } from "next/headers";
 import { redirect } from "next/navigation";
-import Link from "next/link";
-import { Settings, Plus } from "lucide-react";
 
 import GroupHeader from "@/components/groups/GroupHeader";
 import GroupSummary from "@/components/groups/GroupSummary";
@@ -26,16 +24,9 @@ export default async function GroupPage({ params, searchParams }) {
   const host = h.get("x-forwarded-host") ?? h.get("host");
   const base = process.env.NEXT_PUBLIC_SITE_URL || `${proto}://${host}`;
 
-  // Locale & currency
+  // Locale (currency will now come from groupDoc)
   const acceptLang = h.get("accept-language") || "en-US";
   const locale = acceptLang.split(",")[0]?.trim() || "en-US";
-  const currency = process.env.NEXT_PUBLIC_CURRENCY || "USD";
-  const currencyFmt = new Intl.NumberFormat(locale, {
-    style: "currency",
-    currency,
-    currencyDisplay: "narrowSymbol",
-    maximumFractionDigits: 2,
-  });
 
   // Forward cookies so the proxy can read `token`
   const cookieHeader = (await cookies())
@@ -98,13 +89,44 @@ export default async function GroupPage({ params, searchParams }) {
   const summary = (await summaryRes.json().catch(() => ({}))) || {};
   const expensesPayload = (await expensesRes.json().catch(() => ({}))) || {};
 
+  // ✅ compute currency from multiple possible sources, normalised
+  const rawCurrency =
+    (typeof groupDoc?.currency === "string" && groupDoc.currency) ||
+    (typeof summary?.currency === "string" && summary.currency) ||
+    (typeof expensesPayload?.currency === "string" &&
+      expensesPayload.currency) ||
+    process.env.NEXT_PUBLIC_CURRENCY ||
+    "AUD";
+
+  const groupCurrency = String(rawCurrency).trim().toUpperCase() || "AUD";
+
+  let currencyFmt;
+  try {
+    currencyFmt = new Intl.NumberFormat(locale, {
+      style: "currency",
+      currency: groupCurrency,
+      currencyDisplay: "symbol",
+      maximumFractionDigits: 2,
+    });
+  } catch {
+    // Fallback if groupCurrency is invalid
+    currencyFmt = new Intl.NumberFormat(locale, {
+      style: "currency",
+      currency: "AUD",
+      currencyDisplay: "symbol",
+      maximumFractionDigits: 2,
+    });
+  }
+
   // Members
   let members = [];
   if (membersRes?.ok) {
     try {
       const m = await membersRes.json();
       members = m?.members || (Array.isArray(m) ? m : []);
-    } catch {}
+    } catch {
+      // ignore
+    }
   }
   if (!members?.length && Array.isArray(groupDoc?.members))
     members = groupDoc.members;
@@ -153,12 +175,22 @@ export default async function GroupPage({ params, searchParams }) {
           groupName={groupDoc?.name || "Group"}
           groupId={groupId}
           isMember={isMember}
+          currency={groupCurrency}
         />
       </div>
 
-      <GroupSummary currentUserId={myId} settlements={settlements} />
+      <GroupSummary
+        currentUserId={myId}
+        settlements={settlements}
+        currency={groupCurrency}
+      />
 
-      <GroupExpenses groupId={groupId} sort={sort} expenses={sorted} />
+      <GroupExpenses
+        groupId={groupId}
+        sort={sort}
+        expenses={sorted}
+        currency={groupCurrency}
+      />
 
       <GroupSettingsMount
         open={showSettings}
@@ -167,8 +199,10 @@ export default async function GroupPage({ params, searchParams }) {
         groupId={groupId}
       />
 
-      {/* ✅ use the awaited variable, not params.groupId */}
-      <GroupActivity groupId={groupId} />
+      <GroupActivity
+        groupId={groupId}
+        currency={groupCurrency} // 👈 now Activity uses NPR / AUD /  etc
+      />
     </div>
   );
 }

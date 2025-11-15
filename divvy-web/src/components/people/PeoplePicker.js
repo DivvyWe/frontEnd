@@ -2,7 +2,7 @@
 "use client";
 
 import { useEffect, useMemo, useRef, useState } from "react";
-import { FiUserPlus, FiSearch } from "react-icons/fi";
+import { FiSearch } from "react-icons/fi";
 import { useRouter } from "next/navigation";
 
 // ✅ Correct proxy path for contacts
@@ -191,19 +191,7 @@ export default function PeoplePicker({ onChangeSelected }) {
   };
 
   return (
-    <div className="space-y-3 rounded-2xl border border-slate-200 bg-white p-3">
-      <div className="flex items-center justify-between">
-        <div className="flex items-center gap-2 text-sm font-semibold text-slate-700">
-          <FiUserPlus className="h-4 w-4" />
-          Add Group Members
-        </div>
-        {!!selectedIds.length && (
-          <div className="text-xs text-slate-500">
-            {selectedIds.length} selected
-          </div>
-        )}
-      </div>
-
+    <div className="space-y-3">
       {/* Email search (auto after full email) */}
       <div className="relative">
         <FiSearch className="pointer-events-none absolute left-2 top-2.5 h-4 w-4 text-slate-400" />
@@ -266,7 +254,7 @@ export default function PeoplePicker({ onChangeSelected }) {
                   <button
                     type="button"
                     onClick={() => togglePick(u)}
-                    className={`w-full rounded-lg border px-3 py-2 text-left text-sm ${
+                    className={`w-full rounded-lg border px-3 py-2 text-left text-xs sm:text-sm ${
                       selected
                         ? "border-emerald-300 bg-emerald-50 text-emerald-900"
                         : "border-slate-200 bg-white text-slate-800 hover:bg-slate-50"

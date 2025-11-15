@@ -5,7 +5,7 @@ import { useRouter } from "next/navigation";
 import { useMemo, useState } from "react";
 import ConfirmDialog from "@/components/ui/ConfirmDialog";
 
-const fmt = (n) => `$${(Number(n) || 0).toFixed(2)}`;
+const fmt = (n) => `${(Number(n) || 0).toFixed(2)}`;
 
 export default function SettlementViewEdit({ me, settlement }) {
   const router = useRouter();

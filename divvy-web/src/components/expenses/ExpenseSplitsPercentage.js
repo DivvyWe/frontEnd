@@ -131,7 +131,7 @@ export default function ExpenseSplitsPercentage({
                       className="ml-1 font-mono text-[12px] font-medium"
                       style={{ color: BRAND }}
                     >
-                      ${r.share}
+                      {r.share}
                     </span>
                   </div>
                 </div>
@@ -142,9 +142,9 @@ export default function ExpenseSplitsPercentage({
           {/* Summary */}
           <div className="mt-2 flex items-center justify-between text-[11px] text-slate-600">
             <span>
-              <span className="font-mono">${sumShown}</span> of{" "}
+              <span className="font-mono">{sumShown}</span> of{" "}
               <span className="font-mono">
-                ${Number(amount || 0).toFixed(2)}
+                {Number(amount || 0).toFixed(2)}
               </span>
             </span>
             {!pctOk && <span className="text-amber-700">Adjust to 100%.</span>}
