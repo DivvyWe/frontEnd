@@ -19,6 +19,13 @@ const fmtMoneyPlain = (n) => {
   return Number.isInteger(x) ? String(x) : x.toFixed(2);
 };
 
+const toTitleCase = (str = "") =>
+  str
+    .trim()
+    .split(/\s+/)
+    .map((word) => word.charAt(0).toUpperCase() + word.slice(1).toLowerCase())
+    .join(" ");
+
 function useDebounced(value, ms = 300) {
   const [v, setV] = useState(value);
   useEffect(() => {
@@ -316,12 +323,12 @@ export default function GroupsClient({
   const hour = new Date().getHours();
   const greet =
     hour < 5
-      ? "Late night, "
+      ? "Late Night, "
       : hour < 12
-      ? "Good morning, "
+      ? "Good Morning, "
       : hour < 18
-      ? "Good afternoon, "
-      : "Good evening, ";
+      ? "Good Afternoon, "
+      : "Good Evening, ";
 
   const [q, setQ] = useState("");
   const qDebounced = useDebounced(q, 350);
@@ -489,11 +496,7 @@ export default function GroupsClient({
       <div className="flex flex-col gap-1">
         <h1 className="text-2xl font-semibold text-slate-800">
           {greet}
-          {me?.username
-            ? me.username.charAt(0).toUpperCase() +
-              me.username.slice(1).toLowerCase()
-            : "there"}{" "}
-          👋
+          {me?.username ? toTitleCase(me.username) : "there"} 👋 👋
         </h1>
         <p className="text-slate-600">Let’s split smarter today.</p>
       </div>
