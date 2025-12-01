@@ -11,6 +11,7 @@ import {
   FiUsers,
 } from "react-icons/fi";
 import NewGroupButton from "@/components/NewGroupButton";
+import UserDebtOverview from "@/components/groups/UserDebtOverview";
 
 /* ------------------------------ small utils ------------------------------ */
 
@@ -496,14 +497,14 @@ export default function GroupsClient({
       <div className="flex flex-col gap-1">
         <h1 className="text-2xl font-semibold text-slate-800">
           {greet}
-          {me?.username ? toTitleCase(me.username) : "there"} 👋 👋
+          {me?.username ? toTitleCase(me.username) : "there"} 👋
         </h1>
         <p className="text-slate-600">Let’s split smarter today.</p>
       </div>
 
       {/* Notifications */}
       <NotificationsEnable />
-
+      {/* <UserDebtOverview /> */}
       {/* Controls */}
       <div className="rounded-2xl bg-white p-4 shadow-sm ring-1 ring-black/5">
         <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">

@@ -1,4 +1,4 @@
-// app/(app)/layout.js  OR  app/groups/layout.js (wherever your section lives)
+//
 import { cookies, headers } from "next/headers";
 import { redirect } from "next/navigation";
 import AppNav from "@/components/AppNav";

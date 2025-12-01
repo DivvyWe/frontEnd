@@ -1,7 +1,7 @@
 // app/auth/signin/page.js
 "use client";
 
-import { useState } from "react";
+import { useState, useEffect, useRef } from "react";
 import { useRouter } from "next/navigation";
 import { FiEye, FiEyeOff, FiMail, FiLock } from "react-icons/fi";
 import { FcGoogle } from "react-icons/fc";
@@ -16,7 +16,35 @@ export default function SignInPage() {
   const [error, setError] = useState("");
   const [showPw, setShowPw] = useState(false);
 
+  // 🔐 Email verification state
+  const [verificationBlocked, setVerificationBlocked] = useState(false);
+  const [pendingEmail, setPendingEmail] = useState(""); // email used for sign-in
+  const [resending, setResending] = useState(false);
+  const [cooldown, setCooldown] = useState(0);
+  const cooldownRef = useRef(null);
+
   const isValid = email.trim() && password.trim();
+
+  // Cleanup cooldown timer
+  useEffect(() => {
+    return () => {
+      if (cooldownRef.current) clearInterval(cooldownRef.current);
+    };
+  }, []);
+
+  function startCooldown(seconds) {
+    setCooldown(seconds);
+    if (cooldownRef.current) clearInterval(cooldownRef.current);
+    cooldownRef.current = setInterval(() => {
+      setCooldown((prev) => {
+        if (prev <= 1) {
+          clearInterval(cooldownRef.current);
+          return 0;
+        }
+        return prev - 1;
+      });
+    }, 1000);
+  }
 
   function handleGoogleSignIn() {
     // Go through Next proxy → backend /api/auth/google
@@ -77,18 +105,51 @@ export default function SignInPage() {
       .join("; ");
   }
 
+  async function handleResendVerification() {
+    if (!pendingEmail || resending || cooldown > 0) return;
+
+    try {
+      setResending(true);
+      setError("");
+
+      const res = await fetch("/api/proxy/auth/resend-verification", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ email: pendingEmail }),
+      });
+
+      if (!res.ok) {
+        const j = await res.json().catch(() => ({}));
+        throw new Error(
+          j?.message || "Could not resend verification email. Try again later."
+        );
+      }
+
+      // Cooldown to avoid hammering
+      startCooldown(30);
+    } catch (e) {
+      setError(e.message || "Could not resend verification email.");
+    } finally {
+      setResending(false);
+    }
+  }
+
   async function onSubmit(e) {
     e.preventDefault();
     if (!isValid || submitting) return;
     setSubmitting(true);
     setError("");
+    setVerificationBlocked(false);
+    setPendingEmail("");
+
+    const trimmedEmail = email.trim();
 
     try {
       // Use proxy so we never hardcode backend URL
       const res = await fetch("/api/proxy/auth/login", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ email, password }),
+        body: JSON.stringify({ email: trimmedEmail, password }),
         cache: "no-store",
       });
 
@@ -101,6 +162,17 @@ export default function SignInPage() {
       }
 
       if (!res.ok) {
+        // 🔐 Special handling: backend says email not verified
+        if (res.status === 403 && data?.emailVerificationRequired) {
+          setVerificationBlocked(true);
+          setPendingEmail(trimmedEmail);
+          setError(
+            data?.message ||
+              "Your email is not verified yet. Please check your inbox."
+          );
+          return;
+        }
+
         throw new Error(data?.message || "Login failed");
       }
 
@@ -156,6 +228,7 @@ export default function SignInPage() {
             </span>
           </span>
         </div>
+
         <div className="rounded-2xl border border-slate-200 bg-white/90 shadow-lg shadow-lime-100/60 backdrop-blur p-6 sm:p-8">
           <header className="mb-6 text-center">
             <h1 className="text-2xl font-semibold tracking-tight">
@@ -169,6 +242,32 @@ export default function SignInPage() {
           {error && (
             <div className="mb-4 rounded-lg border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-700">
               {error}
+            </div>
+          )}
+
+          {/* If blocked by email verification, show helper + resend */}
+          {verificationBlocked && pendingEmail && (
+            <div className="mb-4 rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-xs text-amber-800">
+              <p>
+                You can&apos;t sign in until{" "}
+                <span className="font-semibold">{pendingEmail}</span> is
+                verified.
+              </p>
+              <p className="mt-1">
+                Didn&apos;t get the email?{" "}
+                <button
+                  type="button"
+                  onClick={handleResendVerification}
+                  disabled={resending || cooldown > 0}
+                  className="font-semibold text-amber-900 underline disabled:no-underline disabled:text-amber-500"
+                >
+                  {resending
+                    ? "Sending…"
+                    : cooldown > 0
+                    ? `Resend available in ${cooldown}s`
+                    : "Resend verification email"}
+                </button>
+              </p>
             </div>
           )}
 

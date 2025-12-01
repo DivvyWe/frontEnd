@@ -14,8 +14,9 @@ import ExpenseSplitsCustom from "@/components/expenses/ExpenseSplitsCustom";
 import ExpenseContributors from "@/components/expenses/ExpenseContributors";
 import ExpenseFormErrors from "@/components/expenses/ExpenseFormErrors";
 import ExpenseActions from "@/components/expenses/ExpenseActions";
+import ExpenseSplitsItems from "@/components/expenses/ExpenseSplitsItems"; // 🆕
 
-/* Helpers */
+// Helpers
 const toCents = (v) => Math.round((Number(v) || 0) * 100);
 const fromCents = (c) => (Number(c || 0) / 100).toFixed(2);
 
@@ -38,14 +39,17 @@ export default function AddExpenseForm({ groupId }) {
   const [participants, setParticipants] = useState([]); // string[] of userIds
 
   // Split mode & state for each mode
-  const [splitMode, setSplitMode] = useState("equal"); // "equal" | "percentage" | "custom"
+  const [splitMode, setSplitMode] = useState("equal"); // "equal" | "percentage" | "custom" | "items"
   const [percentages, setPercentages] = useState({}); // { [userId]: number }
   const [customAmounts, setCustomAmounts] = useState({}); // { [userId]: "12.34" }
+
+  // 🆕 Items for item-based split
+  const [items, setItems] = useState([]); // [{ id, name, price, assignedTo: [userId] }]
 
   // Contributors (who paid)
   const [contributors, setContributors] = useState([]); // [{ user, amount }]
 
-  // Receipt parse extras (optional for backend later)
+  // Receipt parse extras
   const [receiptRawText, setReceiptRawText] = useState("");
   const [receiptImageUrl, setReceiptImageUrl] = useState(null);
 
@@ -131,6 +135,18 @@ export default function AddExpenseForm({ groupId }) {
     };
   }, [groupId, router, currentUserId]); // keep simple; guarded inside
 
+  /* When participants change, drop any assignees for removed participants */
+  useEffect(() => {
+    setItems((prev) =>
+      (prev || []).map((it) => ({
+        ...it,
+        assignedTo: (it.assignedTo || []).filter((id) =>
+          (participants || []).includes(id)
+        ),
+      }))
+    );
+  }, [participants]);
+
   /* Derived checks */
   const hasParticipants = participants.length > 0;
 
@@ -143,7 +159,7 @@ export default function AddExpenseForm({ groupId }) {
     return total === sum;
   }, [contributors, amountNum]);
 
-  // Splits validity
+  // Splits validity (incl. items mode)
   const splitsOk = useMemo(() => {
     if (!hasParticipants) return false;
     if (splitMode === "equal") return true;
@@ -165,6 +181,20 @@ export default function AddExpenseForm({ groupId }) {
       return total === sum;
     }
 
+    if (splitMode === "items") {
+      if (!items || items.length === 0) return false;
+      // every item must have positive price & at least one assignee
+      for (const it of items) {
+        if (!it) return false;
+        if (!Number(it.price) || Number(it.price) <= 0) return false;
+        if (!Array.isArray(it.assignedTo) || it.assignedTo.length === 0)
+          return false;
+      }
+      const total = toCents(amountNum);
+      const sum = items.reduce((s, it) => s + toCents(it.price), 0);
+      return Math.abs(total - sum) <= 1; // allow 1 cent difference
+    }
+
     return false;
   }, [
     splitMode,
@@ -173,6 +203,7 @@ export default function AddExpenseForm({ groupId }) {
     percentages,
     customAmounts,
     amountNum,
+    items,
   ]);
 
   const canSubmit =
@@ -247,10 +278,45 @@ export default function AddExpenseForm({ groupId }) {
         }
       }
 
+      if (splitMode === "items") {
+        if (!items || items.length === 0) {
+          setError(
+            "No items available. Parse a receipt first or choose another split type."
+          );
+          return;
+        }
+
+        for (const it of items) {
+          if (!it || !Number(it.price) || Number(it.price) <= 0) {
+            setError("Each item must have a positive price.");
+            return;
+          }
+          if (!Array.isArray(it.assignedTo) || it.assignedTo.length === 0) {
+            setError(
+              `Item "${
+                it.name || "Item"
+              }" must be assigned to at least one person.`
+            );
+            return;
+          }
+        }
+
+        const total = toCents(amountNum);
+        const sum = items.reduce((s, it) => s + toCents(it.price), 0);
+        if (Math.abs(total - sum) > 1) {
+          setError(
+            "Sum of item prices must match the total (after discounts). Adjust item amounts or the total."
+          );
+          return;
+        }
+      }
+
       setSubmitting(true);
 
       // Build payload expected by backend
       let splits;
+      let payloadItems = undefined;
+
       if (splitMode === "percentage") {
         splits = participants.map((id) => ({
           user: id,
@@ -260,6 +326,14 @@ export default function AddExpenseForm({ groupId }) {
         splits = participants.map((id) => ({
           user: id,
           amount: Number(customAmounts[id] || 0),
+        }));
+      } else if (splitMode === "items") {
+        // backend will compute splits from items
+        splits = [];
+        payloadItems = (items || []).map((it) => ({
+          name: it.name,
+          price: Number(it.price || 0),
+          assignedTo: (it.assignedTo || []).map(String),
         }));
       } else {
         // equal => backend derives equal splits when empty
@@ -278,13 +352,14 @@ export default function AddExpenseForm({ groupId }) {
           user: String(r.user),
           amount: Number(r.amount || 0),
         })),
-        // Ensure backend gets selected participants (cover both shapes)
+        // Ensure backend gets selected participants
         participants: participantIdsArr,
         participantIds: participantIdsArr,
-
-        // Future:
-        // rawReceiptText: receiptRawText || undefined,
-        // receiptImage: receiptImageUrl || undefined,
+        // Items for items split (undefined for other modes)
+        items: payloadItems,
+        // Receipt extras
+        rawReceiptText: receiptRawText || undefined,
+        receiptImage: receiptImageUrl || undefined,
       };
 
       const res = await fetch("/api/proxy/expenses", {
@@ -339,6 +414,24 @@ export default function AddExpenseForm({ groupId }) {
           // backend returns cloudinaryUrl (not receiptImage)
           setReceiptImageUrl(data?.cloudinaryUrl || data?.receiptImage || null);
 
+          // 🧾 normalise parsed items for item-based split
+          if (Array.isArray(data?.items) && data.items.length > 0) {
+            const normalised = data.items
+              .map((it, idx) => ({
+                id:
+                  it._id || `${idx}-${(it.name || "Item").slice(0, 24)}-${idx}`,
+                name: it.name || `Item ${idx + 1}`,
+                price: Number(it.price || 0) || 0,
+                assignedTo: [], // user picks later
+              }))
+              .filter((it) => it.price > 0);
+
+            setItems(normalised);
+
+            // If still on equal mode, gently switch to items
+            setSplitMode((mode) => (mode === "equal" ? "items" : mode));
+          }
+
           // prefill description if merchant info available
           if (data?.merchantName) {
             const d = data?.usedDate ? new Date(data.usedDate) : new Date();
@@ -374,7 +467,7 @@ export default function AddExpenseForm({ groupId }) {
         disabled={submitting || loadingMembers}
       />
 
-      {/* Equal / Percentage / Custom sections */}
+      {/* Equal / Percentage / Custom / Items sections */}
       {splitMode === "equal" && (
         <ExpenseSplitsEqual
           amount={amount}
@@ -402,6 +495,17 @@ export default function AddExpenseForm({ groupId }) {
           members={members}
           customAmounts={customAmounts}
           onChangeCustomAmounts={setCustomAmounts}
+          disabled={submitting}
+        />
+      )}
+
+      {splitMode === "items" && (
+        <ExpenseSplitsItems
+          amount={amount}
+          items={items}
+          onChangeItems={setItems}
+          participantIds={participants}
+          members={members}
           disabled={submitting}
         />
       )}

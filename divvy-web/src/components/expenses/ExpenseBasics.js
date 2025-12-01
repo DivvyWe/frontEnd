@@ -1,7 +1,7 @@
 // src/components/expenses/ExpenseBasics.js
 "use client";
 
-import { useState, useRef, useCallback } from "react";
+import { useState, useRef, useCallback, useEffect } from "react";
 import {
   Upload,
   Trash2,
@@ -27,7 +27,15 @@ export default function ExpenseBasics({
   const [dragActive, setDragActive] = useState(false);
   const [localImageUrl, setLocalImageUrl] = useState(null);
   const [fileName, setFileName] = useState("");
+  const [isMobile, setIsMobile] = useState(false);
   const fileRef = useRef(null);
+
+  // 🧠 Detect mobile to change UI (desktop: dropzone, mobile: camera/gallery button)
+  useEffect(() => {
+    if (typeof window === "undefined") return;
+    const ua = window.navigator.userAgent || "";
+    setIsMobile(/Android|iPhone|iPad|iPod|Mobile/i.test(ua));
+  }, []);
 
   const resetFileInput = () => {
     if (fileRef.current) fileRef.current.value = "";
@@ -44,7 +52,6 @@ export default function ExpenseBasics({
         const fd = new FormData();
         fd.append("image", file);
 
-        // ✅ Correct backend proxy URL (ensure your Next API forwards this)
         const res = await fetch("/api/proxy/receipts/parse", {
           method: "POST",
           body: fd,
@@ -57,55 +64,77 @@ export default function ExpenseBasics({
           data = raw ? JSON.parse(raw) : null;
         } catch {
           if (!res.ok) {
-            throw new Error(raw || "Upstream error (non-JSON)");
+            // Non-JSON error from backend – treat as upstream error text
+            setParseError(
+              raw || "Receipt service returned an invalid response."
+            );
+            setParsing(false);
+            setPreview(null);
+            return;
           }
         }
 
-        // 🌡️ Rate limit (2 parses/day per user)
-        if (res.status === 429) {
+        // 🌡️ Rate limit (2 parses/day per user OR backend 429)
+        if (res.status === 429 || data?.code === "AI_RATE_LIMIT") {
           const serverMsg =
             data?.message ||
             data?.error ||
             "Daily receipt parse quota reached. You can parse up to 2 receipts per day.";
           setParseError(serverMsg);
           setParsing(false);
-          // make sure we don't show stale preview if we hit the limit
           setPreview(null);
-          return; // ✅ no throw => no console error
+          return;
         }
 
+        // 🧯 AI overloaded / service unavailable (backend maps to 503 or passes message)
+        const msgFromServer =
+          data?.message || data?.error || raw || "Failed to parse receipt";
+
+        if (
+          res.status === 503 ||
+          msgFromServer.includes("503 Service Unavailable") ||
+          msgFromServer.toLowerCase().includes("model is overloaded") ||
+          data?.code === "AI_OVERLOADED"
+        ) {
+          setParseError(
+            data?.message ||
+              "Our receipt reader is temporarily overloaded. Please try again in a moment, or just enter the amount manually."
+          );
+          setParsing(false);
+          setPreview(null);
+          return; // ✅ do NOT throw – handled gracefully
+        }
+
+        // Any other non-OK status => real error
         if (!res.ok) {
-          const msg =
-            data?.message || data?.error || raw || "Failed to parse receipt";
           const detailed =
             data?.error && data?.message
               ? `${data.message}: ${data.error}`
-              : msg;
+              : msgFromServer;
           throw new Error(detailed);
         }
 
         // ✅ Unwrap controller shape: { message, data: {...} }
         const payload = data?.data ?? data;
 
-        // Auto-fill Description & Amount
-        if (payload) {
-          const merchant = payload?.merchantName?.trim?.() || "";
-          const total = Number(payload?.totalAmount ?? payload?.amount) || 0;
-          const date =
-            payload?.usedDate || payload?.receiptDate || payload?.date || null;
+        // ---------- Normalise some fields for the parent ----------
+        const merchant = payload?.merchantName?.trim?.() || "";
+        const total = Number(payload?.totalAmount ?? payload?.amount) || 0;
+        const date =
+          payload?.usedDate || payload?.receiptDate || payload?.date || null;
 
-          const formattedDate = date
-            ? new Date(date).toISOString().split("T")[0]
-            : "";
+        const formattedDate = date
+          ? new Date(date).toISOString().split("T")[0]
+          : "";
 
-          const desc =
-            merchant && formattedDate
-              ? `${merchant} - ${formattedDate}`
-              : merchant || formattedDate || payload?.description || "";
+        const desc =
+          merchant && formattedDate
+            ? `${merchant} - ${formattedDate}`
+            : merchant || formattedDate || payload?.description || "";
 
-          if (desc) setDescription?.(desc);
-          if (total > 0) setAmount?.(fmtMoney(total));
-        }
+        // Auto-fill Description & Amount into the form
+        if (desc) setDescription?.(desc);
+        if (total > 0) setAmount?.(fmtMoney(total));
 
         // Show parsed preview
         setPreview({
@@ -117,19 +146,37 @@ export default function ExpenseBasics({
               ? fmtMoney(payload.amount)
               : "",
           description:
-            payload?.merchantName && payload?.usedDate
-              ? `${payload.merchantName} - ${
-                  new Date(payload.usedDate).toISOString().split("T")[0]
-                }`
-              : payload?.description || "",
-          // backend sends cloudinaryUrl (keep receiptImage fallback just in case)
+            merchant && date
+              ? `${merchant} - ${new Date(date).toISOString().split("T")[0]}`
+              : payload?.description || desc || "",
           receiptImage: payload?.cloudinaryUrl || payload?.receiptImage || null,
         });
 
-        // Bubble parsed payload up
-        onReceiptParsed?.(payload);
+        // 🔁 Build enriched payload for parent (items stay as-is from backend)
+        const enrichedPayload = {
+          ...payload,
+          merchantName: merchant || payload?.merchantName,
+          totalAmount: total,
+          usedDate: date || payload?.usedDate || null,
+          descriptionSuggestion: desc,
+        };
+
+        // Bubble parsed payload up (for item-based split, etc.)
+        onReceiptParsed?.(enrichedPayload);
       } catch (err) {
-        setParseError((err && err.message) || "Could not parse the receipt");
+        const rawMsg = (err && err.message) || "Could not parse the receipt";
+
+        let msg = rawMsg;
+        // extra guard in case something 503-y still slips through here
+        if (
+          msg.includes("503 Service Unavailable") ||
+          msg.toLowerCase().includes("model is overloaded")
+        ) {
+          msg =
+            "Our receipt reader is temporarily overloaded. Please try again in a moment, or just enter the amount manually.";
+        }
+
+        setParseError(msg);
         // eslint-disable-next-line no-console
         console.error("[ExpenseBasics] parse error:", err);
       } finally {
@@ -152,18 +199,21 @@ export default function ExpenseBasics({
   }
 
   function handleDragOver(e) {
+    if (isMobile) return; // drag not useful on mobile
     e.preventDefault();
     e.stopPropagation();
     setDragActive(true);
   }
 
   function handleDragLeave(e) {
+    if (isMobile) return;
     e.preventDefault();
     e.stopPropagation();
     setDragActive(false);
   }
 
   async function handleDrop(e) {
+    if (isMobile) return;
     e.preventDefault();
     e.stopPropagation();
     setDragActive(false);
@@ -220,8 +270,8 @@ export default function ExpenseBasics({
       </div>
 
       {/* Receipt uploader */}
-      {/* <div>
-        <div className="flex items-center justify-between">
+      <div>
+        <div className="flex items-center justify-between gap-2">
           <label className="block text-sm font-medium text-slate-700">
             Receipt (optional)
           </label>
@@ -248,36 +298,73 @@ export default function ExpenseBasics({
           onDragLeave={handleDragLeave}
           onDrop={handleDrop}
           onClick={() => {
-            if (!parsing && !submitting) fileRef.current?.click();
+            if (!parsing && !submitting && !isMobile) {
+              // desktop: clicking box opens file picker
+              fileRef.current?.click();
+            }
           }}
           className={[
-            "mt-1 cursor-pointer rounded-lg border-2 border-dashed p-4 transition active:scale-[0.99]",
-            dragActive
-              ? "border-[#84CC16] bg-[#f5fde9]"
-              : "border-slate-300 bg-white hover:bg-slate-50",
+            "mt-1 rounded-lg border-2 p-4 transition",
+            isMobile
+              ? "border-slate-300 bg-white"
+              : [
+                  "cursor-pointer border-dashed active:scale-[0.99]",
+                  dragActive
+                    ? "border-[#84CC16] bg-[#f5fde9]"
+                    : "border-slate-300 bg-white hover:bg-slate-50",
+                ].join(" "),
           ].join(" ")}
         >
           {!localImageUrl ? (
-            <div className="flex flex-col items-center justify-center gap-3 text-center">
-              <div className="rounded-full bg-slate-50 p-3 ring-1 ring-slate-200">
-                <Upload className="h-5 w-5 text-slate-500" />
-              </div>
-              <div className="space-y-1">
-                <p className="text-sm text-slate-700">
-                  Drag & drop a receipt,{" "}
-                  <span
-                    onClick={(e) => {
-                      e.stopPropagation();
-                      if (!parsing && !submitting) fileRef.current?.click();
-                    }}
-                    className="cursor-pointer font-semibold text-slate-900 underline decoration-slate-300 underline-offset-4 hover:text-[#84CC16] hover:decoration-[#84CC16]"
-                  >
-                    browse
-                  </span>
-                  , or paste (Ctrl/Cmd + V)
+            isMobile ? (
+              <div className="flex flex-col items-center justify-center gap-3 text-center">
+                <button
+                  type="button"
+                  onClick={() => {
+                    if (!parsing && !submitting) fileRef.current?.click();
+                  }}
+                  className="inline-flex items-center gap-2 rounded-lg border border-slate-200 bg-slate-900 px-4 py-2 text-sm font-medium text-white shadow-sm active:scale-[0.99]"
+                >
+                  <Upload className="h-4 w-4" />
+                  Open camera / gallery
+                </button>
+                <p className="text-xs text-slate-500">
+                  We&apos;ll read the total and store name automatically. You
+                  can still edit everything before saving.
                 </p>
+                {parseError && (
+                  <p className="mt-1 inline-flex items-center gap-1 text-xs text-rose-700">
+                    <AlertCircle className="h-3.5 w-3.5" /> {parseError}
+                  </p>
+                )}
               </div>
-            </div>
+            ) : (
+              <div className="flex flex-col items-center justify-center gap-3 text-center">
+                <div className="rounded-full bg-slate-50 p-3 ring-1 ring-slate-200">
+                  <Upload className="h-5 w-5 text-slate-500" />
+                </div>
+                <div className="space-y-1">
+                  <p className="text-sm text-slate-700">
+                    Drag & drop a receipt,{" "}
+                    <span
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        if (!parsing && !submitting) fileRef.current?.click();
+                      }}
+                      className="cursor-pointer font-semibold text-slate-900 underline decoration-slate-300 underline-offset-4 hover:text-[#84CC16] hover:decoration-[#84CC16]"
+                    >
+                      browse
+                    </span>
+                    , or paste (Ctrl/Cmd + V)
+                  </p>
+                </div>
+                {parseError && (
+                  <p className="mt-1 inline-flex items-center gap-1 text-xs text-rose-700">
+                    <AlertCircle className="h-3.5 w-3.5" /> {parseError}
+                  </p>
+                )}
+              </div>
+            )
           ) : (
             <div className="flex items-center gap-3">
               <div className="h-14 w-14 flex-none overflow-hidden rounded-md ring-1 ring-slate-200">
@@ -293,7 +380,9 @@ export default function ExpenseBasics({
                   {fileName || "receipt"}
                 </p>
                 <p className="text-xs text-slate-500">
-                  Click or drop to replace
+                  {isMobile
+                    ? "Tap the button below to replace"
+                    : "Click or drop to replace"}
                 </p>
                 {parseError && (
                   <p className="mt-1 inline-flex items-center gap-1 text-xs text-rose-700">
@@ -310,7 +399,7 @@ export default function ExpenseBasics({
                     clearReceipt();
                   }}
                   disabled={parsing || submitting}
-                  className="inline-flex items-center gap-1.5 rounded-md border border-rose-200 bg-rose-50 px-2.5 py-1.5 text-xs font-medium text-rose-700 hover:bg-rose-100"
+                  className="inline-flex items-center gap-1.5 rounded-md border border-rose-200 bg-rose-50 px-2.5 py-1.5 text-xs font-medium text-rose-700 hover:bg-rose-100 disabled:opacity-60"
                 >
                   <Trash2 className="h-3.5 w-3.5" />
                   Remove
@@ -319,6 +408,7 @@ export default function ExpenseBasics({
             </div>
           )}
 
+          {/* Hidden file input – reused for both desktop + mobile */}
           <input
             ref={fileRef}
             type="file"
@@ -363,7 +453,7 @@ export default function ExpenseBasics({
             </p>
           </div>
         ) : null}
-      </div> */}
+      </div>
     </div>
   );
 }

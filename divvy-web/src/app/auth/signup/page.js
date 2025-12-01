@@ -85,9 +85,12 @@ export default function SignUpPage() {
         username: fullName.trim(),
         email: email.trim(),
         password,
+        // optional: could send countryCode/defaultCurrency later
+        // countryCode: "AU",
+        // defaultCurrency: "AUD",
       };
 
-      const res = await fetch("/api/auth/register", {
+      const res = await fetch("/api/proxy/auth/register", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify(payload),
@@ -142,7 +145,7 @@ export default function SignUpPage() {
     setResending(true);
     setError("");
     try {
-      const res = await fetch("/api/auth/resend-verification", {
+      const res = await fetch("/api/proxy/auth/resend-verification", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ email: verifyEmail }),
@@ -191,8 +194,8 @@ export default function SignUpPage() {
             <p className="mt-2 text-sm text-emerald-900/80">
               We’ve sent a verification link to{" "}
               <span className="font-semibold">{verifyEmail}</span>. Please open
-              it to activate your account. You can only sign in **after**
-              verification.
+              it to activate your account. You can only sign in{" "}
+              <strong>after</strong> verification.
             </p>
 
             <div className="mt-4 space-y-2 text-sm text-emerald-900/80">
@@ -462,7 +465,7 @@ export default function SignUpPage() {
                     matches ? "text-emerald-600" : "text-red-600"
                   }`}
                 >
-                  {matches ? "Password matched." : "Password do not match."}
+                  {matches ? "Password matched." : "Passwords do not match."}
                 </p>
               )}
             </div>

@@ -18,6 +18,7 @@ import {
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import ChangePasswordModal from "@/components/ChangePasswordModal";
+import { sendFirebaseSms, getFirebaseIdToken } from "@/lib/firebaseClient";
 
 const BRAND = "#84CC16";
 
@@ -149,6 +150,15 @@ export default function ProfileClient({ initialMe }) {
     [me]
   );
 
+  // Phone verification state
+  const [phoneInput, setPhoneInput] = useState(me?.phone || "");
+  const [smsSent, setSmsSent] = useState(false);
+  const [confirmationResult, setConfirmationResult] = useState(null);
+  const [otpCode, setOtpCode] = useState("");
+  const [phoneLoading, setPhoneLoading] = useState(false);
+  const [phoneMsg, setPhoneMsg] = useState("");
+  const [phoneError, setPhoneError] = useState("");
+
   async function handleSave(patch) {
     const updated = await patchProfile(patch);
     setMe((m) => ({ ...(m || {}), ...(updated || patch) }));
@@ -182,6 +192,84 @@ export default function ProfileClient({ initialMe }) {
       console.error(e);
       alert("Could not log out. Please try again.");
       setLoggingOut(false);
+    }
+  }
+
+  // ---- Phone verification handlers ----
+  async function handleSendSms() {
+    setPhoneError("");
+    setPhoneMsg("");
+    setPhoneLoading(true);
+    try {
+      const trimmed = phoneInput.trim();
+      if (!trimmed.startsWith("+")) {
+        throw new Error(
+          "Please enter phone in international format, e.g. +614... "
+        );
+      }
+
+      const confirmation = await sendFirebaseSms(trimmed);
+      setConfirmationResult(confirmation);
+      setSmsSent(true);
+      setPhoneMsg("SMS sent. Please enter the code you received.");
+    } catch (err) {
+      console.error(err);
+      setPhoneError(err.message || "Failed to send SMS");
+    } finally {
+      setPhoneLoading(false);
+    }
+  }
+
+  async function handleVerifyCode() {
+    setPhoneError("");
+    setPhoneMsg("");
+    if (!confirmationResult) {
+      setPhoneError("Please request SMS first.");
+      return;
+    }
+    if (!otpCode.trim()) {
+      setPhoneError("Please enter the verification code.");
+      return;
+    }
+
+    setPhoneLoading(true);
+    try {
+      // Confirm SMS code with Firebase
+      await confirmationResult.confirm(otpCode.trim());
+
+      // Get Firebase ID token
+      const idToken = await getFirebaseIdToken(true);
+
+      // Call backend to link + verify phone
+      const res = await fetch("/api/proxy/auth/phone/firebase-verify", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ idToken }),
+      });
+
+      const data = await res.json().catch(() => ({}));
+
+      if (!res.ok) {
+        throw new Error(data?.message || "Failed to verify phone");
+      }
+
+      // Update local profile
+      setMe((prev) => ({
+        ...(prev || {}),
+        phone: data.phone || phoneInput.trim(),
+        phoneVerified: !!data.phoneVerified,
+        countryCode: data.countryCode || prev?.countryCode,
+      }));
+
+      setPhoneMsg("Phone verified successfully 🎉");
+      setSmsSent(false);
+      setConfirmationResult(null);
+      setOtpCode("");
+    } catch (err) {
+      console.error(err);
+      setPhoneError(err.message || "Failed to verify phone");
+    } finally {
+      setPhoneLoading(false);
     }
   }
 
@@ -238,19 +326,135 @@ export default function ProfileClient({ initialMe }) {
               onSave={handleSave}
               type="email"
               placeholder="name@example.com"
-              editable={false} // ❌ read-only: no Edit on any screen size
+              editable={false} // read-only, email change is another flow
             />
-            {/* <FieldRow
-              icon={FiPhone}
-              label="Phone"
-              name="phone"
-              value={me?.phone || ""}
-              onSave={handleSave}
-              type="tel"
-              placeholder="+61 ..."
-              editable={false} // ❌ read-only: no Edit on any screen size
-            /> */}
           </div>
+        </div>
+
+        {/* Phone & 2FA card */}
+        <div className="mt-6 rounded-2xl bg-white p-6 shadow-sm ring-1 ring-black/5">
+          <h2 className="text-lg font-semibold text-slate-900 mb-2 flex items-center gap-2">
+            <FiPhone className="h-4 w-4 text-slate-500" />
+            Phone &amp; 2FA
+          </h2>
+          <p className="text-sm text-slate-600 mb-4">
+            Add and verify your phone number to secure your account and enable
+            SMS-based verification in the future.
+          </p>
+
+          {phoneError && (
+            <div className="mb-3 rounded-lg border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-700">
+              {phoneError}
+            </div>
+          )}
+          {phoneMsg && (
+            <div className="mb-3 rounded-lg border border-emerald-200 bg-emerald-50 px-3 py-2 text-sm text-emerald-800">
+              {phoneMsg}
+            </div>
+          )}
+
+          <div className="space-y-4">
+            {/* Phone input */}
+            <div>
+              <label
+                htmlFor="phoneInput"
+                className="mb-1 block text-sm font-medium text-slate-700"
+              >
+                Phone number
+              </label>
+              <div className="relative max-w-md">
+                <FiPhone className="pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 text-slate-400" />
+                <input
+                  id="phoneInput"
+                  name="phoneInput"
+                  type="tel"
+                  className="w-full rounded-lg border border-slate-300 pl-10 pr-3 py-2 text-sm outline-none focus:border-[#84CC16] focus:ring-2 focus:ring-[#84CC16]/30"
+                  placeholder="+61412345678"
+                  value={phoneInput}
+                  onChange={(e) => setPhoneInput(e.target.value)}
+                  disabled={phoneLoading}
+                />
+              </div>
+              <p className="mt-1 text-xs text-slate-500">
+                Use international format starting with + (e.g.{" "}
+                <span className="font-mono">+61...</span> for Australia).
+              </p>
+              {me?.phoneVerified && (
+                <p className="mt-1 text-xs font-medium text-emerald-700">
+                  Phone is verified for this account.
+                </p>
+              )}
+            </div>
+
+            {/* Actions */}
+            {!smsSent ? (
+              <button
+                type="button"
+                onClick={handleSendSms}
+                disabled={phoneLoading || !phoneInput.trim()}
+                className={`inline-flex items-center justify-center rounded-lg px-4 py-2.5 text-sm font-semibold text-white shadow-sm active:scale-[0.98] ${
+                  phoneLoading || !phoneInput.trim()
+                    ? "bg-slate-300 cursor-not-allowed"
+                    : "bg-[#84CC16] hover:bg-[#76b514]"
+                }`}
+              >
+                {phoneLoading ? "Sending SMS…" : "Send verification code"}
+              </button>
+            ) : (
+              <div className="space-y-3 max-w-md">
+                <div>
+                  <label
+                    htmlFor="otpCode"
+                    className="mb-1 block text-sm font-medium text-slate-700"
+                  >
+                    Verification code
+                  </label>
+                  <input
+                    id="otpCode"
+                    name="otpCode"
+                    type="text"
+                    inputMode="numeric"
+                    className="w-full rounded-lg border border-slate-300 px-3 py-2 text-sm outline-none focus:border-[#84CC16] focus:ring-2 focus:ring-[#84CC16]/30"
+                    placeholder="Enter the 6-digit code"
+                    value={otpCode}
+                    onChange={(e) => setOtpCode(e.target.value)}
+                    disabled={phoneLoading}
+                  />
+                </div>
+
+                <div className="flex flex-wrap gap-3">
+                  <button
+                    type="button"
+                    onClick={handleVerifyCode}
+                    disabled={phoneLoading || !otpCode.trim()}
+                    className={`inline-flex items-center justify-center rounded-lg px-4 py-2.5 text-sm font-semibold text-white shadow-sm active:scale-[0.98] ${
+                      phoneLoading || !otpCode.trim()
+                        ? "bg-slate-300 cursor-not-allowed"
+                        : "bg-[#84CC16] hover:bg-[#76b514]"
+                    }`}
+                  >
+                    {phoneLoading ? "Verifying…" : "Verify code"}
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setSmsSent(false);
+                      setConfirmationResult(null);
+                      setOtpCode("");
+                      setPhoneMsg("");
+                      setPhoneError("");
+                    }}
+                    className="inline-flex items-center justify-center rounded-lg border border-slate-300 bg-white px-4 py-2.5 text-sm font-medium text-slate-700 hover:bg-slate-50"
+                  >
+                    Cancel
+                  </button>
+                </div>
+              </div>
+            )}
+          </div>
+
+          {/* Hidden container for Firebase reCAPTCHA */}
+          <div id="firebase-recaptcha-container" className="mt-4" />
         </div>
 
         {/* Logout card */}

@@ -7,6 +7,7 @@ const MODES = [
   { key: "equal", label: "Equal" },
   { key: "percentage", label: "Percentage" },
   { key: "custom", label: "Custom" },
+  // { key: "items", label: "By items" }, // 🆕 item-based splitting
 ];
 
 export default function ExpenseSplitMode({
@@ -71,6 +72,8 @@ export default function ExpenseSplitMode({
           "Assign percentages to each member. Must total 100%."}
         {splitMode === "custom" &&
           "Enter exact amounts for each member. Must total the full amount."}
+        {splitMode === "items" &&
+          "Use the parsed receipt items and choose who each item belongs to. We’ll calculate the split for you."}
       </p>
     </section>
   );
