@@ -5,6 +5,7 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import { FiX, FiLock, FiEye, FiEyeOff, FiCheckCircle } from "react-icons/fi";
 
 const BRAND = "#84CC16";
+// Must match backend regex
 const strongPwd = /^(?=.*[a-z])(?=.*[A-Z])(?=.*\d)(?=.*[^\w\s]).{8,}$/;
 
 async function changePasswordRequest({ currentPassword, newPassword }) {
@@ -14,15 +15,22 @@ async function changePasswordRequest({ currentPassword, newPassword }) {
     body: JSON.stringify({ currentPassword, newPassword }),
     cache: "no-store",
   });
+
   const text = await res.text();
+
   if (!res.ok) {
+    let message = "Failed to change password";
     try {
-      const j = text ? JSON.parse(text) : {};
-      throw new Error(j?.message || "Failed to change password");
+      const j = text ? JSON.parse(text) : null;
+      if (j?.message) message = j.message;
     } catch {
-      throw new Error(text || "Failed to change password");
+      // fallback: if backend sent '{"message":"..."}' as plain text
+      const m = text && text.match(/"message"\s*:\s*"([^"]+)"/);
+      if (m?.[1]) message = m[1];
     }
+    throw new Error(message);
   }
+
   return text ? JSON.parse(text) : {};
 }
 
@@ -40,7 +48,6 @@ export default function ChangePasswordModal() {
   const [ok, setOk] = useState("");
   const [submitting, setSubmitting] = useState(false);
 
-  const dialogRef = useRef(null);
   const firstInputRef = useRef(null);
 
   // Open on event
@@ -69,10 +76,14 @@ export default function ChangePasswordModal() {
 
   // Close on ESC
   useEffect(() => {
-    const onKey = (e) => e.key === "Escape" && setOpen(false);
+    const onKey = (e) => {
+      if (e.key === "Escape" && !submitting) {
+        setOpen(false);
+      }
+    };
     if (open) document.addEventListener("keydown", onKey);
     return () => document.removeEventListener("keydown", onKey);
-  }, [open]);
+  }, [open, submitting]);
 
   // Live validity
   const meetsLength = newPwd.length >= 8;
@@ -107,15 +118,19 @@ export default function ChangePasswordModal() {
 
   async function onSubmit(e) {
     e?.preventDefault?.();
+    if (submitting) return;
+
     const v = validate();
     if (v) {
       setError(v);
       setOk("");
       return;
     }
+
     setSubmitting(true);
     setError("");
     setOk("");
+
     try {
       await changePasswordRequest({
         currentPassword: oldPwd,
@@ -134,6 +149,29 @@ export default function ChangePasswordModal() {
       setSubmitting(false);
     }
   }
+
+  // Clear messages when user edits fields
+  const onOldChange = (e) => {
+    setOldPwd(e.target.value);
+    if (error || ok) {
+      setError("");
+      setOk("");
+    }
+  };
+  const onNewChange = (e) => {
+    setNewPwd(e.target.value);
+    if (error || ok) {
+      setError("");
+      setOk("");
+    }
+  };
+  const onConfirmChange = (e) => {
+    setConfirmPwd(e.target.value);
+    if (error || ok) {
+      setError("");
+      setOk("");
+    }
+  };
 
   if (!open) return null;
 
@@ -158,14 +196,13 @@ export default function ChangePasswordModal() {
       {/* Backdrop */}
       <div
         className="absolute inset-0 bg-black/40 backdrop-blur-sm"
-        onClick={() => setOpen(false)}
+        onClick={() => {
+          if (!submitting) setOpen(false);
+        }}
       />
 
       {/* Dialog */}
-      <div
-        ref={dialogRef}
-        className="absolute left-1/2 top-1/2 w-[min(92vw,560px)] -translate-x-1/2 -translate-y-1/2 rounded-2xl bg-white p-6 shadow-xl ring-1 ring-black/10"
-      >
+      <div className="absolute left-1/2 top-1/2 w-[min(92vw,560px)] -translate-x-1/2 -translate-y-1/2 rounded-2xl bg-white p-6 shadow-xl ring-1 ring-black/10">
         <div className="mb-4 flex items-center justify-between">
           <div className="flex items-center gap-3">
             <div className="grid h-10 w-10 place-items-center rounded-lg bg-slate-100">
@@ -180,10 +217,12 @@ export default function ChangePasswordModal() {
           </div>
 
           <button
-            onClick={() => setOpen(false)}
+            onClick={() => !submitting && setOpen(false)}
             className="grid h-9 w-9 place-items-center rounded-lg text-slate-600 hover:bg-slate-100"
             aria-label="Close"
             title="Close"
+            type="button"
+            disabled={submitting}
           >
             <FiX className="h-5 w-5" />
           </button>
@@ -202,7 +241,7 @@ export default function ChangePasswordModal() {
                 autoComplete="current-password"
                 className="w-full rounded-lg border border-slate-300 px-3 py-2 text-sm text-slate-800 outline-none ring-[#84CC16]/20 focus:border-[#84CC16] focus:ring-4"
                 value={oldPwd}
-                onChange={(e) => setOldPwd(e.target.value)}
+                onChange={onOldChange}
                 required
               />
               <button
@@ -234,7 +273,7 @@ export default function ChangePasswordModal() {
                 autoComplete="new-password"
                 className="w-full rounded-lg border border-slate-300 px-3 py-2 text-sm text-slate-800 outline-none ring-[#84CC16]/20 focus:border-[#84CC16] focus:ring-4"
                 value={newPwd}
-                onChange={(e) => setNewPwd(e.target.value)}
+                onChange={onNewChange}
                 required
               />
               <button
@@ -264,7 +303,7 @@ export default function ChangePasswordModal() {
                 autoComplete="new-password"
                 className="w-full rounded-lg border border-slate-300 px-3 py-2 text-sm text-slate-800 outline-none ring-[#84CC16]/20 focus:border-[#84CC16] focus:ring-4"
                 value={confirmPwd}
-                onChange={(e) => setConfirmPwd(e.target.value)}
+                onChange={onConfirmChange}
                 required
               />
               <button
@@ -288,7 +327,7 @@ export default function ChangePasswordModal() {
           </label>
 
           {/* Live rules */}
-          <div className="mt-1 grid grid-cols-1 sm:grid-cols-2 gap-x-6 gap-y-1 rounded-lg border border-slate-200 p-3">
+          <div className="mt-1 grid grid-cols-1 gap-x-6 gap-y-1 rounded-lg border border-slate-200 p-3 sm:grid-cols-2">
             <Rule ok={meetsLength} label="At least 8 characters" />
             <Rule ok={hasUpper} label="Contains an uppercase letter" />
             <Rule ok={hasLower} label="Contains a lowercase letter" />
@@ -316,15 +355,16 @@ export default function ChangePasswordModal() {
           <div className="mt-1 flex items-center justify-end gap-2">
             <button
               type="button"
-              onClick={() => setOpen(false)}
-              className="rounded-lg px-4 py-2 text-sm font-medium text-slate-700 hover:bg-slate-50"
+              onClick={() => !submitting && setOpen(false)}
+              className="rounded-lg px-4 py-2 text-sm font-medium text-slate-700 hover:bg-slate-50 disabled:cursor-not-allowed"
+              disabled={submitting}
             >
               Cancel
             </button>
             <button
               type="submit"
               disabled={!canSubmit}
-              className={`rounded-lg px-4 py-2 text-sm font-semibold text-white hover:opacity-90 disabled:cursor-not-allowed disabled:opacity-60`}
+              className="rounded-lg px-4 py-2 text-sm font-semibold text-white hover:opacity-90 disabled:cursor-not-allowed disabled:opacity-60"
               style={{ backgroundColor: BRAND }}
               title={
                 !canSubmit ? "Meet all criteria to continue" : "Change password"

@@ -1,3 +1,4 @@
+// src/components/contacts/AddContactModal.jsx
 "use client";
 
 import React, { useEffect, useMemo, useRef, useState } from "react";
@@ -17,6 +18,7 @@ const nameOf = (u) =>
   u?.alias ||
   u?.username ||
   (u?.email ? u.email.split("@")[0] : "") ||
+  (u?.phone || "").replace("+", "＋") ||
   "Someone";
 
 /* ------------------------------ component ------------------------------ */
@@ -25,22 +27,42 @@ export default function AddContactModal({ open, onClose, onAdd }) {
   const [searching, setSearching] = useState(false);
   const [result, setResult] = useState(null);
   const [err, setErr] = useState("");
+
+  // track what type we last searched with: "email" | "phone" | null
+  const [lastKind, setLastKind] = useState(null);
+
   const abortRef = useRef(null);
   const inputRef = useRef(null);
 
   const doSearch = useMemo(
     () =>
       debounce(async (text) => {
-        const query = text?.trim() || "";
+        const raw = text ?? "";
+        const query = raw.trim();
+
         setErr("");
         setResult(null);
 
-        // Likely email handling:
-        // Only skip if it clearly isn't an email (no "@").
-        if (!query.includes("@")) {
+        if (!query) {
           setSearching(false);
+          setLastKind(null);
           return;
         }
+
+        const noSpaces = query.replace(/\s+/g, "");
+
+        // Decide if this is email or phone
+        const isEmail = noSpaces.includes("@");
+        const phonePattern = /^[+0-9]{5,}$/;
+        const isPhone = !isEmail && phonePattern.test(noSpaces);
+
+        if (!isEmail && !isPhone) {
+          setSearching(false);
+          setLastKind(null);
+          return;
+        }
+
+        setLastKind(isEmail ? "email" : "phone");
 
         // cancel previous
         if (abortRef.current) abortRef.current.abort();
@@ -48,9 +70,12 @@ export default function AddContactModal({ open, onClose, onAdd }) {
 
         setSearching(true);
         try {
+          const params = new URLSearchParams(
+            isEmail ? { email: noSpaces } : { phone: noSpaces }
+          );
           const url =
-            `/api/proxy/contacts/user/search-candidate?` +
-            new URLSearchParams({ email: query });
+            "/api/proxy/contacts/user/search-candidate?" + params.toString();
+
           const res = await fetch(url, {
             cache: "no-store",
             signal: abortRef.current.signal,
@@ -63,7 +88,12 @@ export default function AddContactModal({ open, onClose, onAdd }) {
             setErr(j?.message || "Already in your contacts");
           } else if (res.status === 400) {
             const j = await res.json().catch(() => ({}));
-            setErr(j?.message || "Invalid email");
+            setErr(
+              j?.message ||
+                (isEmail
+                  ? "Invalid email"
+                  : "Invalid phone number. Only verified phone numbers can be used.")
+            );
           } else if (!res.ok) {
             const j = await res.json().catch(() => ({}));
             setErr(j?.message || "Search failed");
@@ -85,21 +115,22 @@ export default function AddContactModal({ open, onClose, onAdd }) {
   /* ------------------------------ lifecycle ------------------------------ */
   useEffect(() => {
     if (open) {
-      // reset and focus
       setErr("");
       setResult(null);
       setSearching(false);
+      setLastKind(null);
       setTimeout(() => inputRef.current?.focus(), 60);
     } else {
       setQ("");
       setErr("");
       setResult(null);
       setSearching(false);
+      setLastKind(null);
       if (abortRef.current) abortRef.current.abort();
     }
   }, [open]);
 
-  // close on ESC
+  // ESC + Enter behaviour
   useEffect(() => {
     if (!open) return;
     const onKey = (e) => {
@@ -114,6 +145,7 @@ export default function AddContactModal({ open, onClose, onAdd }) {
 
   if (!open) return null;
   const showNoUser = result?.none && !searching && !err;
+  const isPhoneMode = lastKind === "phone";
 
   return (
     <div className="fixed inset-0 z-50">
@@ -132,7 +164,7 @@ export default function AddContactModal({ open, onClose, onAdd }) {
           aria-modal="true"
           onClick={(e) => e.stopPropagation()}
         >
-          {/* Header — matches GroupCreateModal */}
+          {/* Header */}
           <div className="mb-4 flex items-center justify-between">
             <div className="flex items-center gap-2">
               <div className="grid h-8 w-8 place-items-center rounded-lg bg-[#84CC16]/15 text-[#1f2937]">
@@ -164,7 +196,7 @@ export default function AddContactModal({ open, onClose, onAdd }) {
             {/* Search input row */}
             <div>
               <label className="mb-1 block text-sm font-medium text-slate-700">
-                Search by email
+                Search by email or phone
               </label>
               <div className="flex gap-2">
                 <div className="relative flex-1">
@@ -177,7 +209,7 @@ export default function AddContactModal({ open, onClose, onAdd }) {
                       setQ(v);
                       doSearch(v);
                     }}
-                    placeholder="someone@example.com"
+                    placeholder="someone@example.com or +61413561159 or 0413..."
                     className="w-full rounded-lg border border-slate-300 pl-9 pr-3 py-2 outline-none focus:border-[#84CC16] focus:ring-2 focus:ring-[#84CC16]/25"
                   />
                 </div>
@@ -200,16 +232,50 @@ export default function AddContactModal({ open, onClose, onAdd }) {
                   )}
                 </button>
               </div>
-              {q && !q.includes("@") && (
-                <div className="mt-2 text-xs text-amber-700 bg-amber-50 border border-amber-200 rounded px-2 py-1">
-                  Enter a full email (name@domain.tld)
+
+              {/* Hint + Open contacts — only in phone mode */}
+              {isPhoneMode && (
+                <div className="mt-2 flex flex-wrap items-center justify-between gap-2 text-xs text-slate-500">
+                  <span>
+                    Using a{" "}
+                    <span className="font-medium">verified phone number</span>.
+                    For mobiles like <code>0413…</code> we&apos;ll detect the
+                    correct country automatically.
+                  </span>
+
+                  <button
+                    type="button"
+                    onClick={() => {
+                      // if you are already on /contacts this just closes modal;
+                      // if you trigger modal somewhere else it navigates there
+                      if (window.location.pathname === "/contacts") {
+                        onClose?.();
+                      } else {
+                        window.location.href = "/contacts";
+                      }
+                    }}
+                    className="rounded-full border border-slate-200 bg-white px-3 py-1 text-xs font-medium text-slate-600 hover:bg-slate-50"
+                  >
+                    Open contacts list
+                  </button>
+                </div>
+              )}
+
+              {/* Generic hint when idle */}
+              {!q && !isPhoneMode && (
+                <div className="mt-2 text-xs text-slate-500">
+                  You can add people using their{" "}
+                  <span className="font-medium">email</span> or their{" "}
+                  <span className="font-medium">verified phone number</span>.
                 </div>
               )}
             </div>
 
-            {/* Empty / none messages */}
+            {/* No user message */}
             {showNoUser && (
-              <div className="text-sm text-slate-500">No user found.</div>
+              <div className="text-sm text-slate-500">
+                No user found with that email or verified phone number.
+              </div>
             )}
 
             {/* Result card */}
@@ -218,14 +284,14 @@ export default function AddContactModal({ open, onClose, onAdd }) {
                 <div className="flex items-center gap-3">
                   <AvatarCircle
                     name={nameOf(result)}
-                    title={result.email || "—"}
+                    title={result.email || result.phone || "—"}
                   />
                   <div>
                     <div className="font-medium text-slate-800">
                       {nameOf(result)}
                     </div>
                     <div className="text-xs text-slate-500">
-                      {result.email || "—"}
+                      {result.email || result.phone || "—"}
                     </div>
                   </div>
                 </div>
@@ -242,10 +308,10 @@ export default function AddContactModal({ open, onClose, onAdd }) {
               </div>
             )}
 
-            {/* Gentle hint when idle */}
+            {/* Idle hint when everything is empty */}
             {!q && !result && !searching && !err && (
               <div className="text-xs text-slate-500">
-                Tip: You can paste an email and press <b>Enter</b>.
+                Tip: Paste an email or phone and press <b>Enter</b>.
               </div>
             )}
           </div>
