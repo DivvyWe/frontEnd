@@ -13,6 +13,53 @@ import {
 
 const fmtMoney = (n) => (Number(n) || 0).toFixed(2);
 
+// 🔻 Client-side image compression helper
+async function compressImageFile(file, maxWidth = 1200, quality = 0.7) {
+  return new Promise((resolve, reject) => {
+    const img = new Image();
+    const reader = new FileReader();
+
+    reader.onload = (e) => {
+      img.src = e.target.result;
+    };
+
+    img.onload = () => {
+      const canvas = document.createElement("canvas");
+      const scale = img.width > maxWidth ? maxWidth / img.width : 1;
+      const newWidth = img.width * scale;
+      const newHeight = img.height * scale;
+
+      canvas.width = newWidth;
+      canvas.height = newHeight;
+
+      const ctx = canvas.getContext("2d");
+      ctx.drawImage(img, 0, 0, newWidth, newHeight);
+
+      canvas.toBlob(
+        (blob) => {
+          if (!blob) {
+            reject(new Error("Compression failed"));
+            return;
+          }
+          const compressedFile = new File([blob], file.name, {
+            type: "image/jpeg",
+            lastModified: Date.now(),
+          });
+          resolve(compressedFile);
+        },
+        "image/jpeg",
+        quality
+      );
+    };
+
+    img.onerror = () =>
+      reject(new Error("Failed to load image for compression"));
+    reader.onerror = () => reject(new Error("Failed to read image file"));
+
+    reader.readAsDataURL(file);
+  });
+}
+
 export default function ExpenseBasics({
   description,
   setDescription,
@@ -57,9 +104,19 @@ export default function ExpenseBasics({
           body: fd,
         });
 
-        // Read once for better error surfacing
         const raw = await res.text();
         let data = null;
+
+        // 🔻 Special-case 413 from nginx (file still too big)
+        if (res.status === 413) {
+          setParseError(
+            "Receipt image is too large. Please try a closer/cropped photo or screenshot."
+          );
+          setParsing(false);
+          setPreview(null);
+          return;
+        }
+
         try {
           data = raw ? JSON.parse(raw) : null;
         } catch {
@@ -167,7 +224,6 @@ export default function ExpenseBasics({
         const rawMsg = (err && err.message) || "Could not parse the receipt";
 
         let msg = rawMsg;
-        // extra guard in case something 503-y still slips through here
         if (
           msg.includes("503 Service Unavailable") ||
           msg.toLowerCase().includes("model is overloaded")
@@ -186,11 +242,21 @@ export default function ExpenseBasics({
     [onReceiptParsed, setAmount, setDescription]
   );
 
+  // 🔻 Compress before sending to parseFile (camera, gallery, drag, paste all go through here)
   const handleChosenFile = async (file) => {
     if (!file) return;
-    setLocalImageUrl(URL.createObjectURL(file));
-    setFileName(file.name || "receipt");
-    await parseFile(file);
+
+    try {
+      const compressed = await compressImageFile(file, 1200, 0.7);
+      setLocalImageUrl(URL.createObjectURL(compressed));
+      setFileName(file.name || "receipt");
+      await parseFile(compressed);
+    } catch (err) {
+      console.error("[ExpenseBasics] compression error:", err);
+      setParseError(
+        "Could not prepare the image. Please try a closer or smaller photo."
+      );
+    }
   };
 
   async function handleFileChange(e) {
@@ -413,8 +479,6 @@ export default function ExpenseBasics({
             ref={fileRef}
             type="file"
             accept="image/*"
-            capture="environment"
-            disabled={parsing || submitting}
             onChange={handleFileChange}
             className="hidden"
           />
