@@ -185,6 +185,7 @@ export default function RootLayout({ children }) {
         <InstallBanner />
 
         {children}
+        <div id="firebase-recaptcha-container" style={{ display: "none" }} />
       </body>
     </html>
   );

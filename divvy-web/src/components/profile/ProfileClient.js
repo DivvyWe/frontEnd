@@ -164,7 +164,7 @@ export default function ProfileClient({ initialMe }) {
   );
 
   const hasPhone = !!me?.phone;
-  const isPhoneVerified = !!me?.phoneVerified;
+  const isPhoneVerified = hasPhone && !!me?.phoneVerified;
 
   // Build dynamic country list from libphonenumber-js metadata
   const countryOptions = useMemo(() => {

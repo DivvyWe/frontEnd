@@ -499,7 +499,7 @@ export default function AddExpenseForm({ groupId }) {
         />
       )}
 
-      {splitMode === "items" && (
+      {/* {splitMode === "items" && (
         <ExpenseSplitsItems
           amount={amount}
           items={items}
@@ -508,7 +508,7 @@ export default function AddExpenseForm({ groupId }) {
           members={members}
           disabled={submitting}
         />
-      )}
+      )} */}
 
       {/* Contributors (who paid) */}
       <ExpenseContributors

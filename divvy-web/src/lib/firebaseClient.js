@@ -18,13 +18,13 @@ const firebaseConfig = {
 
 let _auth = null;
 let _recaptcha = null;
+let _recaptchaContainerId = null;
 
 function getFirebaseApp() {
   if (typeof window === "undefined") return null; // SSR guard
 
   if (!getApps().length) {
     if (!firebaseConfig.apiKey) {
-      // Helps debugging if envs are missing
       console.warn(
         "[firebaseClient] Missing Firebase config env vars, check NEXT_PUBLIC_FIREBASE_*"
       );
@@ -51,13 +51,36 @@ export function getRecaptchaVerifier(
     throw new Error("ReCAPTCHA can only be used in the browser");
   }
 
-  if (_recaptcha) return _recaptcha;
-
   const auth = getFirebaseAuth();
 
-  _recaptcha = new RecaptchaVerifier(auth, containerId, {
-    size: "invisible", // we keep it invisible, you can change to "normal" if you want widget
-  });
+  // If we already have one, but its DOM element is gone, reset it
+  if (_recaptcha) {
+    const el = document.getElementById(_recaptchaContainerId || containerId);
+    if (!el) {
+      try {
+        _recaptcha.clear();
+      } catch {
+        // ignore
+      }
+      _recaptcha = null;
+      _recaptchaContainerId = null;
+    }
+  }
+
+  // Create if needed
+  if (!_recaptcha) {
+    const el = document.getElementById(containerId);
+    if (!el) {
+      console.warn(
+        `[firebaseClient] reCAPTCHA container #${containerId} not found in DOM`
+      );
+    }
+
+    _recaptchaContainerId = containerId;
+    _recaptcha = new RecaptchaVerifier(auth, containerId, {
+      size: "invisible", // keep invisible; you can switch to "normal" if you want a visible widget
+    });
+  }
 
   return _recaptcha;
 }

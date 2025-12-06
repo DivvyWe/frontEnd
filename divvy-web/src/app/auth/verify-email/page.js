@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useState } from "react";
-import { useRouter, useSearchParams } from "next/navigation";
+import { useSearchParams } from "next/navigation";
 import Image from "next/image";
 import Link from "next/link";
 
@@ -42,16 +42,18 @@ async function smartPOST(path, body) {
 }
 
 export default function VerifyEmailPage() {
-  const router = useRouter();
   const search = useSearchParams();
   const token = search.get("token")?.trim();
 
   const [status, setStatus] = useState("idle"); // idle | loading | success | expired | error
   const [message, setMessage] = useState("");
-  const [email, setEmail] = useState(""); // for resend
+
+  // resend-email state
+  const [email, setEmail] = useState("");
   const [resending, setResending] = useState(false);
   const [resendMsg, setResendMsg] = useState("");
 
+  // ================= EMAIL VERIFY =================
   useEffect(() => {
     (async () => {
       if (!token) {
@@ -63,7 +65,6 @@ export default function VerifyEmailPage() {
       setMessage("");
 
       try {
-        // ✅ Use proxy first, then fallback to NEXT_PUBLIC_API_BASE
         const res = await smartGET(
           `/auth/verify-email?token=${encodeURIComponent(token)}`
         );
@@ -78,7 +79,10 @@ export default function VerifyEmailPage() {
 
         if (res.ok) {
           setStatus("success");
-          setMessage(data?.message || "Email verified successfully.");
+          setMessage(
+            data?.message ||
+              "Your email has been verified successfully. You can sign in now."
+          );
         } else if (res.status === 400) {
           setStatus("expired");
           setMessage(
@@ -95,6 +99,7 @@ export default function VerifyEmailPage() {
     })();
   }, [token]);
 
+  // ================= RESEND EMAIL =================
   async function onResend(e) {
     e.preventDefault();
     setResendMsg("");
@@ -107,7 +112,6 @@ export default function VerifyEmailPage() {
     }
     setResending(true);
     try {
-      // ✅ Proxy first; fallback to backend base
       const res = await smartPOST("/auth/resend-verification", { email: v });
       const j = await res.json().catch(() => ({}));
       if (!res.ok) throw new Error(j?.message || "Could not resend email.");
@@ -163,6 +167,10 @@ export default function VerifyEmailPage() {
               <p className="mt-2 text-sm text-emerald-900/80">
                 {message ||
                   "Your email has been verified. You can sign in now."}
+              </p>
+              <p className="mt-3 text-xs text-emerald-900/70">
+                Once you’ve signed in, you can manage or verify your mobile
+                number from your profile settings.
               </p>
 
               <div className="mt-6 flex flex-col sm:flex-row gap-3">
