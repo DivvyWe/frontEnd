@@ -8,7 +8,6 @@ import {
   FiLock,
   FiEye,
   FiEyeOff,
-  FiCheckCircle,
   FiPhone,
 } from "react-icons/fi";
 import { FcGoogle } from "react-icons/fc";
@@ -16,6 +15,7 @@ import Image from "next/image";
 import Link from "next/link";
 
 import PhoneCountrySelect from "@/components/profile/PhoneCountrySelect";
+import OtpInput from "@/components/OtpInput"; // ⭐ OTP UI
 import { sendFirebaseSms } from "@/lib/firebaseClient";
 
 import metadata from "libphonenumber-js/metadata.full.json";
@@ -24,7 +24,7 @@ import { getCountries, getCountryCallingCode } from "libphonenumber-js/core";
 const EMAIL_RE = /^[^\s@]+@[^\s@]+\.[^\s@]{2,}$/i;
 const STRONG_PWD_RE = /^(?=.*[a-z])(?=.*[A-Z])(?=.*\d)(?=.*[^\w\s]).{8,}$/;
 
-// Convert local phone ("0413 561 159") → "+61xxxxxxxxx"
+// Convert "0413 561 159" → "+61413561159"
 function normalisePhoneE164(localPhone, countryCode) {
   if (!localPhone || !countryCode) return null;
   try {
@@ -32,12 +32,11 @@ function normalisePhoneE164(localPhone, countryCode) {
     if (!dial) return null;
 
     const digits = localPhone.replace(/\D/g, "");
-    if (!digits) return null;
-
     const withoutZero = digits.startsWith("0") ? digits.slice(1) : digits;
+
     return `+${dial}${withoutZero}`;
   } catch (e) {
-    console.error("Failed to normalise phone", e);
+    console.error(e);
     return null;
   }
 }
@@ -53,21 +52,21 @@ export default function SignUpPage() {
   const [password, setPassword] = useState("");
   const [confirm, setConfirm] = useState("");
 
-  // ui state
+  // ui
   const [showPw, setShowPw] = useState(false);
   const [showPw2, setShowPw2] = useState(false);
   const [agree, setAgree] = useState(false);
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState("");
 
-  // verification flow (email + phone)
+  // verification flow
   const [verifyMode, setVerifyMode] = useState(false);
   const [verifyEmail, setVerifyEmail] = useState("");
   const [resending, setResending] = useState(false);
   const [cooldown, setCooldown] = useState(0);
   const cooldownTimer = useRef(null);
 
-  // phone verification (Firebase SMS)
+  // phone OTP
   const [hasSignupPhone, setHasSignupPhone] = useState(false);
   const [pendingPhoneE164, setPendingPhoneE164] = useState(null);
   const [phoneOtp, setPhoneOtp] = useState("");
@@ -78,68 +77,63 @@ export default function SignUpPage() {
   const [phoneOtpSent, setPhoneOtpSent] = useState(false);
   const [confirmationResult, setConfirmationResult] = useState(null);
 
-  // country options
+  // validation helpers
+  const trimmedEmail = email.trim();
+  const trimmedPhone = phone.trim();
+  const validEmail = EMAIL_RE.test(trimmedEmail);
+  const strongPwd = STRONG_PWD_RE.test(password);
+  const matches = confirm === password && password.length > 0;
+  const phoneLooksOkay =
+    trimmedPhone.length === 0 || /\d{4,}/.test(trimmedPhone.replace(/\D/g, ""));
+
+  const canSubmit =
+    !!fullName.trim() &&
+    validEmail &&
+    strongPwd &&
+    matches &&
+    phoneLooksOkay &&
+    agree &&
+    !submitting;
+
+  // country list
   const countryOptions = useMemo(() => {
     try {
-      const isoList = getCountries(metadata) || [];
-      return isoList
-        .map((iso2) => {
-          let dial = "";
-          try {
-            dial = getCountryCallingCode(iso2, metadata);
-          } catch {
-            dial = "";
-          }
-          return { iso2, dialCode: dial };
-        })
+      return getCountries(metadata)
+        .map((iso2) => ({
+          iso2,
+          dialCode: getCountryCallingCode(iso2, metadata),
+        }))
         .filter((c) => c.dialCode)
         .sort((a, b) => a.iso2.localeCompare(b.iso2));
-    } catch (e) {
-      console.error("Failed to build country options from metadata:", e);
+    } catch {
       return [{ iso2: "AU", dialCode: "61" }];
     }
   }, []);
 
+  // cleanup cooldown timer
   useEffect(() => {
     return () => {
       if (cooldownTimer.current) clearInterval(cooldownTimer.current);
     };
   }, []);
 
-  const trimmedEmail = email.trim();
-  const trimmedPhone = phone.trim();
-  const validEmail = EMAIL_RE.test(trimmedEmail);
-  const strongPwd = STRONG_PWD_RE.test(password);
-  const matches = confirm === password && password.length > 0;
+  // Start countdown timer
+  function startCooldown(seconds) {
+    setCooldown(seconds);
+    if (cooldownTimer.current) clearInterval(cooldownTimer.current);
 
-  const phoneLooksOkay =
-    trimmedPhone.length === 0 || /\d{4,}/.test(trimmedPhone.replace(/\D/g, ""));
-
-  const canSubmit = useMemo(
-    () =>
-      !!fullName.trim() &&
-      validEmail &&
-      strongPwd &&
-      matches &&
-      phoneLooksOkay &&
-      agree &&
-      !submitting,
-    [
-      fullName,
-      validEmail,
-      strongPwd,
-      matches,
-      phoneLooksOkay,
-      agree,
-      submitting,
-    ]
-  );
-
-  function handleGoogleSignup() {
-    const oauthUrl = "/api/proxy/auth/google";
-    window.location.assign(oauthUrl);
+    cooldownTimer.current = setInterval(() => {
+      setCooldown((s) => {
+        if (s <= 1) {
+          clearInterval(cooldownTimer.current);
+          return 0;
+        }
+        return s - 1;
+      });
+    }, 1000);
   }
 
+  // -------- SUBMIT SIGNUP --------
   async function onSubmit(e) {
     e.preventDefault();
     setError("");
@@ -175,7 +169,7 @@ export default function SignUpPage() {
       const raw = await res.text();
       let data;
       try {
-        data = JSON.parse(raw);
+        data = JSON.parse(raw || "{}");
       } catch {
         data = { message: raw };
       }
@@ -195,16 +189,14 @@ export default function SignUpPage() {
         throw new Error(data?.message || "Registration failed");
       }
 
-      // Prepare phone for Firebase SMS
-      let e164 = null;
-      if (trimmedPhone) {
-        e164 = normalisePhoneE164(trimmedPhone, countryCode);
-      }
+      // normalise phone for Firebase
+      const e164 = trimmedPhone
+        ? normalisePhoneE164(trimmedPhone, countryCode)
+        : null;
 
       setPendingPhoneE164(e164);
       setHasSignupPhone(!!e164);
 
-      // show verify screen
       setVerifyEmail(trimmedEmail);
       setVerifyMode(true);
       startCooldown(30);
@@ -217,30 +209,17 @@ export default function SignUpPage() {
       setPhoneOtpSent(false);
       setConfirmationResult(null);
     } catch (err) {
-      setError(err.message || "Registration failed");
+      setError(err.message || "Sign up failed");
     } finally {
       setSubmitting(false);
     }
   }
 
-  function startCooldown(seconds) {
-    setCooldown(seconds);
-    if (cooldownTimer.current) clearInterval(cooldownTimer.current);
-    cooldownTimer.current = setInterval(() => {
-      setCooldown((prev) => {
-        if (prev <= 1) {
-          clearInterval(cooldownTimer.current);
-          return 0;
-        }
-        return prev - 1;
-      });
-    }, 1000);
-  }
-
+  // -------- RESEND EMAIL --------
   async function onResendEmail() {
-    if (!verifyEmail || resending || cooldown > 0) return;
+    if (!verifyEmail || cooldown > 0) return;
+
     setResending(true);
-    setError("");
     try {
       const res = await fetch("/api/proxy/auth/resend-verification", {
         method: "POST",
@@ -252,31 +231,31 @@ export default function SignUpPage() {
         const j = await res.json().catch(() => ({}));
         throw new Error(j?.message || "Could not resend verification email");
       }
+
       startCooldown(30);
-    } catch (e) {
-      setError(e.message || "Could not resend verification email");
+    } catch (err) {
+      setError(err.message || "Resend failed");
     } finally {
       setResending(false);
     }
   }
 
-  // ===== PHONE OTP (Firebase SMS) =====
-
+  // -------- SEND SMS CODE --------
   async function sendSignupPhoneOtp() {
     if (!pendingPhoneE164) {
       setPhoneError("No mobile number found for this signup.");
       return;
     }
+
+    setPhoneLoading(true);
     setPhoneError("");
     setPhoneMsg("");
-    setPhoneLoading(true);
+
     try {
       const confirmation = await sendFirebaseSms(pendingPhoneE164);
       setConfirmationResult(confirmation);
       setPhoneOtpSent(true);
-      setPhoneMsg(
-        `We’ve sent a 6-digit code to ${pendingPhoneE164}. Enter it below to verify your phone.`
-      );
+      setPhoneMsg(`We’ve sent a 6-digit code to ${pendingPhoneE164}.`);
     } catch (err) {
       console.error(err);
       setPhoneError(
@@ -287,8 +266,9 @@ export default function SignUpPage() {
     }
   }
 
+  // -------- VERIFY SMS CODE --------
   async function handleVerifyPhoneOtp() {
-    if (!phoneOtp.trim()) {
+    if (!phoneOtp || phoneOtp.length !== 6) {
       setPhoneError("Please enter the 6-digit code.");
       return;
     }
@@ -297,11 +277,26 @@ export default function SignUpPage() {
       return;
     }
 
-    setPhoneError("");
-    setPhoneMsg("");
-    setPhoneLoading(true);
     try {
-      await confirmationResult.confirm(phoneOtp.trim());
+      setPhoneLoading(true);
+      setPhoneError("");
+
+      const cred = await confirmationResult.confirm(phoneOtp);
+      const idToken = await cred.user.getIdToken();
+
+      const res = await fetch("/api/proxy/auth/verify-phone-signup", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ email: verifyEmail, idToken }),
+      });
+
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) {
+        throw new Error(
+          data?.message || "Backend failed to save verified phone number"
+        );
+      }
+
       setPhoneVerified(true);
       setPhoneMsg("Phone verified successfully 🎉");
       setPhoneOtp("");
@@ -313,26 +308,20 @@ export default function SignUpPage() {
     }
   }
 
-  // 🔥 AUTO-SEND SMS RIGHT AFTER "CREATE ACCOUNT" (once verify screen + reCAPTCHA are rendered)
+  // AUTO-SEND SMS on verify screen load
   useEffect(() => {
     if (
-      !verifyMode ||
-      !hasSignupPhone ||
-      !pendingPhoneE164 ||
-      phoneOtpSent ||
-      phoneVerified
+      verifyMode &&
+      hasSignupPhone &&
+      pendingPhoneE164 &&
+      !phoneOtpSent &&
+      !phoneVerified
     ) {
-      return;
+      const timer = setTimeout(() => {
+        sendSignupPhoneOtp().catch(() => {});
+      }, 300);
+      return () => clearTimeout(timer);
     }
-
-    // Small delay to ensure #firebase-recaptcha-container is in the DOM
-    const timer = setTimeout(() => {
-      sendSignupPhoneOtp().catch(() => {
-        // errors are already handled inside sendSignupPhoneOtp
-      });
-    }, 300);
-
-    return () => clearTimeout(timer);
   }, [
     verifyMode,
     hasSignupPhone,
@@ -341,12 +330,12 @@ export default function SignUpPage() {
     phoneVerified,
   ]);
 
-  // ================= VERIFY VIEW =================
+  // ===================== VERIFY MODE SCREEN =====================
   if (verifyMode) {
     return (
       <main className="min-h-screen grid place-items-center py-10 px-4 bg-[radial-gradient(60rem_40rem_at_20%_0%,#dcfce7_0%,transparent_60%),radial-gradient(50rem_30rem_at_100%_100%,#f7fee7_0%,transparent_60%)]">
         <div className="w-full max-w-md">
-          {/* brand */}
+          {/* Brand */}
           <div className="mb-6 flex items-center gap-2 justify-center">
             <Image
               src="/icons/icon-192.png"
@@ -374,14 +363,6 @@ export default function SignUpPage() {
               We’ve sent a verification link to{" "}
               <span className="font-semibold">{verifyEmail}</span>. Please open
               it to activate your account.
-              {hasSignupPhone && pendingPhoneE164 && (
-                <>
-                  {" "}
-                  We’re also sending a 6-digit SMS code to{" "}
-                  <span className="font-semibold">{pendingPhoneE164}</span> so
-                  you can verify your phone here.
-                </>
-              )}
             </p>
 
             <div className="mt-4 space-y-2 text-sm text-emerald-900/80">
@@ -395,6 +376,7 @@ export default function SignUpPage() {
               </ul>
             </div>
 
+            {/* Email resend */}
             <div className="mt-6 flex flex-col sm:flex-row gap-3">
               <button
                 type="button"
@@ -422,7 +404,7 @@ export default function SignUpPage() {
               </button>
             </div>
 
-            {/* PHONE VERIFY SECTION */}
+            {/* PHONE VERIFY */}
             {hasSignupPhone && pendingPhoneE164 && (
               <div className="mt-8 rounded-xl border border-emerald-100 bg-white/70 px-4 py-3">
                 <h2 className="text-sm font-semibold text-slate-900">
@@ -432,9 +414,6 @@ export default function SignUpPage() {
                   We’ll use your phone so friends can find you by mobile and
                   invite you to groups. This step is optional but recommended.
                 </p>
-
-                {/* reCAPTCHA container for this page */}
-                {/* <div id="firebase-recaptcha-container" className="mt-3" /> */}
 
                 {phoneError && (
                   <div className="mt-3 rounded-lg border border-red-200 bg-red-50 px-3 py-2 text-xs text-red-700">
@@ -449,13 +428,27 @@ export default function SignUpPage() {
 
                 {!phoneVerified ? (
                   <div className="mt-4 space-y-3">
-                    {!phoneOtpSent && !phoneError && (
-                      <p className="text-xs text-slate-500">
-                        Sending SMS with your verification code…
-                      </p>
+                    {/* OTP input – 6 digits, numeric */}
+                    {phoneOtpSent && (
+                      <div>
+                        <label className="mb-1 block text-xs font-medium text-slate-700">
+                          Verification code
+                        </label>
+                        <OtpInput
+                          length={6}
+                          value={phoneOtp}
+                          onChange={setPhoneOtp}
+                          onComplete={(code) => {
+                            setPhoneOtp(code);
+                            // you can auto-submit here if you want:
+                            // handleVerifyPhoneOtp();
+                          }}
+                          disabled={phoneLoading}
+                        />
+                      </div>
                     )}
 
-                    {/* Resend button */}
+                    {/* Resend SMS */}
                     {phoneOtpSent && (
                       <button
                         type="button"
@@ -471,45 +464,19 @@ export default function SignUpPage() {
                       </button>
                     )}
 
-                    {/* OTP input */}
-                    {phoneOtpSent && (
-                      <>
-                        <div>
-                          <label
-                            htmlFor="phoneOtp"
-                            className="mb-1 block text-xs font-medium text-slate-700"
-                          >
-                            Verification code
-                          </label>
-                          <input
-                            id="phoneOtp"
-                            name="phoneOtp"
-                            type="text"
-                            inputMode="numeric"
-                            className="w-full rounded-lg border border-slate-300 px-3 py-2 text-sm outline-none focus:border-[#84CC16] focus:ring-2 focus:ring-[#84CC16]/30"
-                            placeholder="Enter the 6-digit code"
-                            value={phoneOtp}
-                            onChange={(e) => setPhoneOtp(e.target.value)}
-                            disabled={phoneLoading}
-                          />
-                        </div>
-
-                        <div className="flex flex-wrap gap-3">
-                          <button
-                            type="button"
-                            onClick={handleVerifyPhoneOtp}
-                            disabled={phoneLoading || !phoneOtp.trim()}
-                            className={`inline-flex flex-1 items-center justify-center rounded-lg px-4 py-2.5 text-sm font-semibold text-white shadow-sm active:scale-[0.98] ${
-                              phoneLoading || !phoneOtp.trim()
-                                ? "bg-slate-300 cursor-not-allowed"
-                                : "bg-[#84CC16] hover:bg-[#76b514]"
-                            }`}
-                          >
-                            {phoneLoading ? "Verifying…" : "Verify phone"}
-                          </button>
-                        </div>
-                      </>
-                    )}
+                    {/* Verify button */}
+                    <button
+                      type="button"
+                      onClick={handleVerifyPhoneOtp}
+                      disabled={phoneLoading || phoneOtp.length !== 6}
+                      className={`w-full rounded-lg px-4 py-2.5 text-sm font-semibold text-white shadow-sm active:scale-[0.98] ${
+                        phoneLoading || phoneOtp.length !== 6
+                          ? "bg-slate-300 cursor-not-allowed"
+                          : "bg-[#84CC16] hover:bg-[#76b514]"
+                      }`}
+                    >
+                      {phoneLoading ? "Verifying…" : "Verify phone"}
+                    </button>
                   </div>
                 ) : (
                   <p className="mt-3 text-xs font-medium text-emerald-700">
@@ -531,18 +498,17 @@ export default function SignUpPage() {
     );
   }
 
-  // ================= SIGNUP FORM =================
+  // ===================== NORMAL SIGNUP SCREEN =====================
   return (
     <main className="min-h-screen grid place-items-center py-10 px-4 bg-[radial-gradient(60rem_40rem_at_20%_0%,#dcfce7_0%,transparent_60%),radial-gradient(50rem_30rem_at_100%_100%,#f7fee7_0%,transparent_60%)]">
       <div className="w-full max-w-md">
-        {/* brand */}
+        {/* Brand */}
         <div className="mb-6 flex items-center gap-2 justify-center">
           <Image
             src="/icons/icon-192.png"
-            alt="Divsez logo"
+            alt="Divsez"
             width={40}
             height={40}
-            priority
             className="h-10 w-10 rounded-xl"
           />
           <span className="flex items-baseline gap-1">
@@ -555,6 +521,7 @@ export default function SignUpPage() {
           </span>
         </div>
 
+        {/* Signup Form */}
         <div className="rounded-2xl border border-slate-200 bg-white/90 shadow-lg shadow-lime-100/60 backdrop-blur p-6 sm:p-8">
           <header className="mb-6 text-center">
             <h1 className="text-2xl font-semibold tracking-tight">
@@ -571,12 +538,11 @@ export default function SignUpPage() {
             </div>
           )}
 
-          {/* Google sign up */}
+          {/* Google Signup */}
           <button
             type="button"
-            onClick={handleGoogleSignup}
-            className="mb-4 inline-flex w-full items-center justify-center gap-3 rounded-lg border border-slate-300 bg-white px-3 py-2.5 font-medium text-slate-700 hover:bg-slate-50 active:scale-[0.99] transition"
-            aria-label="Continue with Google"
+            onClick={() => (window.location.href = "/api/proxy/auth/google")}
+            className="mb-4 inline-flex w-full items-center justify-center gap-3 rounded-lg border border-slate-300 bg-white px-3 py-2.5 font-medium text-slate-700 hover:bg-slate-50 active:scale-[0.99]"
           >
             <FcGoogle className="text-xl" />
             Continue with Google
@@ -594,9 +560,9 @@ export default function SignUpPage() {
             </div>
           </div>
 
-          {/* Email sign up form */}
-          <form onSubmit={onSubmit} className="space-y-4">
-            {/* Full name */}
+          {/* Signup Form */}
+          <form onSubmit={onSubmit} autoComplete="on" className="space-y-4">
+            {/* Full Name */}
             <div>
               <label
                 htmlFor="fullName"
@@ -605,55 +571,52 @@ export default function SignUpPage() {
                 Full name
               </label>
               <div className="relative">
-                <FiUser className="pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 text-slate-400" />
+                <FiUser className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400" />
                 <input
                   id="fullName"
-                  name="fullName"
+                  name="name"
+                  autoComplete="name"
                   className="w-full rounded-lg border border-slate-300 pl-10 pr-3 py-2 outline-none focus:border-[#84CC16] focus:ring-2 focus:ring-[#84CC16]/30"
                   placeholder="Enter your full name"
                   value={fullName}
                   onChange={(e) => setFullName(e.target.value)}
                   required
-                  autoComplete="name"
                 />
               </div>
             </div>
 
-            {/* Country + Phone (optional) */}
+            {/* Phone */}
             <div>
               <label className="mb-1 block text-sm font-medium text-slate-700">
-                Mobile (optional)
+                Mobile
               </label>
 
-              <div className="grid grid-cols-[minmax(0,0.9fr)_minmax(0,2.1fr)] gap-2">
-                <PhoneCountrySelect
-                  countryCode={countryCode}
-                  setCountryCode={setCountryCode}
-                  countryOptions={countryOptions}
-                />
+              <div className="flex items-center gap-2">
+                {/* Country selector */}
+                <div className="w-[120px]">
+                  <PhoneCountrySelect
+                    countryCode={countryCode}
+                    setCountryCode={setCountryCode}
+                    countryOptions={countryOptions}
+                  />
+                </div>
 
-                <div className="relative">
-                  <FiPhone className="pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 text-slate-400" />
+                {/* Phone input */}
+                <div className="relative flex-1">
+                  <FiPhone className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400" />
                   <input
                     id="phone"
-                    name="phone"
-                    className="w-full rounded-lg border border-slate-300 pl-10 pr-3 py-2 outline-none focus:border-[#84CC16] focus:ring-2 focus:ring-[#84CC16]/30"
+                    name="tel"
                     type="tel"
                     inputMode="tel"
-                    placeholder="e.g. 0413 561 159"
+                    placeholder=""
+                    className="h-11 w-full rounded-lg border border-slate-300 pl-10 pr-3 outline-none focus:border-[#84CC16] focus:ring-2 focus:ring-[#84CC16]/30"
                     value={phone}
                     onChange={(e) => setPhone(e.target.value)}
                     autoComplete="tel"
                   />
                 </div>
               </div>
-
-              <p className="mt-1 text-xs text-slate-500">
-                Use your local mobile format (e.g.{" "}
-                <span className="font-mono">0413…</span> in Australia). After
-                signup, we’ll automatically send a 6-digit SMS code so you can
-                verify your phone.
-              </p>
 
               {!phoneLooksOkay && trimmedPhone.length > 0 && (
                 <p className="mt-1 text-xs text-red-600">
@@ -668,17 +631,17 @@ export default function SignUpPage() {
                 htmlFor="email"
                 className="mb-1 block text-sm font-medium text-slate-700"
               >
-                Email (for login)
+                Email
               </label>
               <div className="relative">
-                <FiMail className="pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 text-slate-400" />
+                <FiMail className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400" />
                 <input
                   id="email"
                   name="email"
-                  className="w-full rounded-lg border border-slate-300 pl-10 pr-3 py-2 outline-none focus:border-[#84CC16] focus:ring-2 focus:ring-[#84CC16]/30"
                   type="email"
                   inputMode="email"
                   placeholder="name@company.com"
+                  className="w-full rounded-lg border border-slate-300 pl-10 pr-3 py-2 outline-none focus:border-[#84CC16] focus:ring-2 focus:ring-[#84CC16]/30"
                   value={email}
                   onChange={(e) => setEmail(e.target.value)}
                   required
@@ -701,13 +664,13 @@ export default function SignUpPage() {
                 Password
               </label>
               <div className="relative">
-                <FiLock className="pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 text-slate-400" />
+                <FiLock className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400" />
                 <input
                   id="password"
-                  name="password"
-                  className="w-full rounded-lg border border-slate-300 pl-10 pr-10 py-2 outline-none focus:border-[#84CC16] focus:ring-2 focus:ring-[#84CC16]/30"
+                  name="new-password"
                   type={showPw ? "text" : "password"}
                   placeholder="Create a strong password"
+                  className="w-full rounded-lg border border-slate-300 pl-10 pr-10 py-2 outline-none focus:border-[#84CC16] focus:ring-2 focus:ring-[#84CC16]/30"
                   value={password}
                   onChange={(e) => setPassword(e.target.value)}
                   required
@@ -715,8 +678,8 @@ export default function SignUpPage() {
                 />
                 <button
                   type="button"
-                  className="absolute inset-y-0 right-0 grid w-10 place-items-center text-slate-500 hover:text-slate-700"
                   onClick={() => setShowPw((v) => !v)}
+                  className="absolute inset-y-0 right-0 grid w-10 place-items-center text-slate-500 hover:text-slate-700"
                   aria-label={showPw ? "Hide password" : "Show password"}
                 >
                   {showPw ? <FiEyeOff /> : <FiEye />}
@@ -764,22 +727,23 @@ export default function SignUpPage() {
                 Confirm password
               </label>
               <div className="relative">
-                <FiLock className="pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 text-slate-400" />
+                <FiLock className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400" />
                 <input
                   id="confirm"
-                  name="confirm"
-                  className="w-full rounded-lg border border-slate-300 pl-10 pr-10 py-2 outline-none focus:border-[#84CC16] focus:ring-2 focus:ring-[#84CC16]/30"
+                  name="confirm-password"
                   type={showPw2 ? "text" : "password"}
                   placeholder="Re-enter your password"
+                  className="w-full rounded-lg border border-slate-300 pl-10 pr-10 py-2 outline-none focus:border-[#84CC16] focus:ring-2 focus:ring-[#84CC16]/30"
                   value={confirm}
                   onChange={(e) => setConfirm(e.target.value)}
                   required
                   autoComplete="new-password"
                 />
+
                 <button
                   type="button"
-                  className="absolute inset-y-0 right-0 grid w-10 place-items-center text-slate-500 hover:text-slate-700"
                   onClick={() => setShowPw2((v) => !v)}
+                  className="absolute inset-y-0 right-0 grid w-10 place-items-center text-slate-500 hover:text-slate-700"
                   aria-label={showPw2 ? "Hide password" : "Show password"}
                 >
                   {showPw2 ? <FiEyeOff /> : <FiEye />}
@@ -823,7 +787,7 @@ export default function SignUpPage() {
               </span>
             </label>
 
-            {/* Submit */}
+            {/* Submit button */}
             <button
               type="submit"
               disabled={!canSubmit}

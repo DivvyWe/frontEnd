@@ -5,7 +5,7 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import { FiSearch } from "react-icons/fi";
 import { useRouter } from "next/navigation";
 
-// ✅ Correct proxy path for contacts
+// ✅ Correct proxy paths
 const CONTACTS_ENDPOINT = "/api/proxy/contacts/user/contacts";
 const SEARCH_ENDPOINT = "/api/proxy/user/search";
 
@@ -15,6 +15,12 @@ const toTitle = (s = "") =>
     .replace(/\b\w/g, (m) => m.toUpperCase());
 
 const isEmail = (s = "") => /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(String(s).trim());
+
+const isPhoneLike = (s = "") => {
+  const digits = String(s).replace(/\D/g, "");
+  return digits.length >= 6; // treat 6+ digits as "phone-ish"
+};
+
 const pickLabel = (u) =>
   toTitle(u?.username || u?.alias || u?.email || u?.phone || "User");
 
@@ -115,19 +121,38 @@ export default function PeoplePicker({ onChangeSelected }) {
     });
   }, [contacts, selectedIds]);
 
-  // Exact email lookup (existing users only)
-  async function runEmailLookup(email) {
-    if (!email || email === lastLookedUpRef.current) return;
-    lastLookedUpRef.current = email;
+  // ---------- Unified lookup: email OR phone ----------
+  async function runLookup(raw) {
+    if (!raw || raw === lastLookedUpRef.current) return;
+    lastLookedUpRef.current = raw;
 
     setSearchError("");
     setDropdownUser(null);
 
-    // if email matches a contact, select immediately
+    const trimmed = raw.trim();
+    const lower = trimmed.toLowerCase();
+    const digits = trimmed.replace(/\D/g, "");
+
+    // If email/phone already in contacts, auto-select
     const contactHit =
-      contacts.find(
-        (u) => String(u.email || "").toLowerCase() === email.toLowerCase()
-      ) || null;
+      contacts.find((u) => {
+        const ue = String(u.email || "").toLowerCase();
+        const upDigits = String(u.phone || "").replace(/\D/g, "");
+
+        if (isEmail(trimmed) && ue && ue === lower) return true;
+
+        // Exact-ish phone match: same digits (or endsWith for local vs +61)
+        if (digits && digits.length >= 8 && upDigits) {
+          return (
+            upDigits === digits ||
+            upDigits.endsWith(digits) ||
+            digits.endsWith(upDigits)
+          );
+        }
+
+        return false;
+      }) || null;
+
     if (contactHit) {
       togglePick(contactHit);
       setQuery("");
@@ -137,7 +162,7 @@ export default function PeoplePicker({ onChangeSelected }) {
     try {
       setSearching(true);
       const res = await fetch(
-        `${SEARCH_ENDPOINT}?query=${encodeURIComponent(email)}`,
+        `${SEARCH_ENDPOINT}?query=${encodeURIComponent(trimmed)}`,
         { cache: "no-store", credentials: "include" }
       );
 
@@ -147,8 +172,7 @@ export default function PeoplePicker({ onChangeSelected }) {
       }
 
       if (res.status === 404) {
-        // No invite path now — just inform the user
-        setSearchError("No user found for that email.");
+        setSearchError("No user found for that email or phone.");
         setDropdownUser(null);
       } else if (!res.ok) {
         const j = await res.json().catch(() => ({}));
@@ -164,23 +188,33 @@ export default function PeoplePicker({ onChangeSelected }) {
     }
   }
 
-  // Auto-search once a full email is typed
+  // Auto-search once a full email OR phone-like string is typed
   useEffect(() => {
     const q = query.trim();
     setSearchError("");
     setDropdownUser(null);
 
-    if (!isEmail(q)) return;
+    if (!q) return;
+
+    const shouldSearch =
+      isEmail(q) || isPhoneLike(q) || (q.startsWith("+") && q.length >= 7);
+
+    if (!shouldSearch) return;
 
     clearTimeout(debounceRef.current);
-    debounceRef.current = setTimeout(() => runEmailLookup(q), 350);
+    debounceRef.current = setTimeout(() => runLookup(q), 350);
+
     return () => clearTimeout(debounceRef.current);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [query]);
 
   function onBlurTry() {
     const q = query.trim();
-    if (isEmail(q)) runEmailLookup(q);
+    if (!q) return;
+
+    if (isEmail(q) || isPhoneLike(q) || q.startsWith("+")) {
+      runLookup(q);
+    }
   }
 
   const labelForId = (id) => {
@@ -192,7 +226,7 @@ export default function PeoplePicker({ onChangeSelected }) {
 
   return (
     <div className="space-y-3">
-      {/* Email search (auto after full email) */}
+      {/* Email / Phone search */}
       <div className="relative">
         <FiSearch className="pointer-events-none absolute left-2 top-2.5 h-4 w-4 text-slate-400" />
         <input
@@ -203,11 +237,14 @@ export default function PeoplePicker({ onChangeSelected }) {
             setSearchError("");
           }}
           onBlur={onBlurTry}
-          placeholder="Type a full email…"
+          placeholder="Type an email or mobile number…"
           className="w-full rounded-lg border border-slate-300 pl-8 pr-3 py-2 text-sm outline-none focus:border-[#84CC16] focus:ring-2 focus:ring-[#84CC16]/25"
         />
-
-        {/* Suggestion (existing user) */}
+        <p className="mt-1 text-xs text-slate-500">
+          For mobile numbers,pleas use international format (e.g.{" "}
+          <span className="font-mono">+61…</span>).
+        </p>
+        {/* Suggestion (existing user from /user/search) */}
         {dropdownUser ? (
           <div className="absolute z-10 mt-1 w-full overflow-hidden rounded-lg border border-slate-200 bg-white shadow-lg">
             <button

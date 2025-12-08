@@ -1068,16 +1068,34 @@ function AddMemberForm({ groupId, canInvite, compact = false, onSuccess }) {
   // lookup UI state
   const [lookupLoading, setLookupLoading] = useState(false);
   const [lookupUser, setLookupUser] = useState(null);
-  const [lookupCheckedEmail, setLookupCheckedEmail] = useState("");
+  const [lookupCheckedValue, setLookupCheckedValue] = useState("");
 
   const isCompleteEmail = (v) =>
     /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test((v || "").trim());
 
-  // Debounced lookup when the identifier is a complete email
+  // "International-ish" phone: starts with +, has at least 7 digits
+  const looksLikeIntlPhone = (v) => {
+    const s = (v || "").trim();
+    if (!s.startsWith("+")) return false;
+    const digits = s.replace(/\D/g, "");
+    return digits.length >= 7;
+  };
+
+  const displayName = (u) =>
+    u?.displayName ||
+    u?.username ||
+    (u?.email ? u.email.split("@")[0] : "") ||
+    u?._id ||
+    "";
+
+  // Debounced lookup when identifier looks like email or +phone
   useEffect(() => {
     setLookupUser(null);
-    setLookupCheckedEmail("");
-    if (!isCompleteEmail(identifier)) {
+    setLookupCheckedValue("");
+
+    const value = identifier.trim();
+    const shouldLookup = isCompleteEmail(value) || looksLikeIntlPhone(value);
+    if (!shouldLookup) {
       setLookupLoading(false);
       return;
     }
@@ -1086,8 +1104,7 @@ function AddMemberForm({ groupId, canInvite, compact = false, onSuccess }) {
     const t = setTimeout(async () => {
       try {
         setLookupLoading(true);
-        const email = identifier.trim();
-        const q = encodeURIComponent(email);
+        const q = encodeURIComponent(value);
 
         // backend expects ?query=
         const res = await fetch(`/api/proxy/user/search?query=${q}`, {
@@ -1107,17 +1124,22 @@ function AddMemberForm({ groupId, canInvite, compact = false, onSuccess }) {
         else if (
           data &&
           typeof data === "object" &&
-          (data.email || data._id || data.username)
-        )
+          (data.email || data._id || data.username || data.phone)
+        ) {
           pool = [data]; // single user object
+        }
 
+        // Prefer exact match on email or phone if present
+        const lower = value.toLowerCase();
         const exact =
-          pool.find(
-            (u) => (u?.email || "").toLowerCase() === email.toLowerCase()
-          ) || null;
+          pool.find((u) => {
+            const email = (u?.email || "").toLowerCase();
+            const phone = (u?.phone || "").toLowerCase();
+            return email === lower || phone === lower;
+          }) || null;
 
         setLookupUser(exact);
-        setLookupCheckedEmail(email);
+        setLookupCheckedValue(value);
       } catch {
         // soft-fail: just don't show a match
       } finally {
@@ -1132,13 +1154,8 @@ function AddMemberForm({ groupId, canInvite, compact = false, onSuccess }) {
   }, [identifier]);
 
   const disabled = !canInvite || submitting || !identifier.trim();
-
-  const displayName = (u) =>
-    u?.displayName ||
-    u?.username ||
-    (u?.email ? u.email.split("@")[0] : "") ||
-    u?._id ||
-    "";
+  const showLookup =
+    isCompleteEmail(identifier.trim()) || looksLikeIntlPhone(identifier.trim());
 
   const onSubmit = async (e) => {
     e.preventDefault();
@@ -1146,13 +1163,14 @@ function AddMemberForm({ groupId, canInvite, compact = false, onSuccess }) {
     setSubmitting(true);
     setMsg("");
     try {
+      const value = identifier.trim();
       const res = await fetch(`/api/proxy/groups/${groupId}/members`, {
         method: "POST",
         headers: {
           "Content-Type": "application/json",
           Accept: "application/json",
         },
-        body: JSON.stringify({ identifier: identifier.trim() }),
+        body: JSON.stringify({ identifier: value }),
       });
       const json = await res.json().catch(() => ({}));
       if (!res.ok) throw new Error(json?.message || "Failed to add member");
@@ -1162,22 +1180,20 @@ function AddMemberForm({ groupId, canInvite, compact = false, onSuccess }) {
         invited: !!json?.invited,
         member: json?.member || null,
         inviteStatus: json?.inviteStatus,
-        identifier: identifier.trim(),
+        identifier: value,
         user: lookupUser || null,
       });
 
       setMsg(json?.invited ? "Invite sent." : "Member added.");
       setIdentifier("");
       setLookupUser(null);
-      setLookupCheckedEmail("");
+      setLookupCheckedValue("");
     } catch (err) {
       setMsg(err.message || "Invite failed");
     } finally {
       setSubmitting(false);
     }
   };
-
-  const showLookup = isCompleteEmail(identifier);
 
   return (
     <form
@@ -1194,8 +1210,11 @@ function AddMemberForm({ groupId, canInvite, compact = false, onSuccess }) {
       <div className="flex flex-col gap-2 sm:flex-row">
         <input
           value={identifier}
-          onChange={(e) => setIdentifier(e.target.value)}
-          placeholder="Email, phone, or username"
+          onChange={(e) => {
+            setIdentifier(e.target.value);
+            setMsg("");
+          }}
+          placeholder="Email, mobile (+61…), or username"
           disabled={!canInvite || submitting}
           className="min-w-0 flex-1 rounded-md border border-slate-300 bg-white px-3 py-2 text-sm text-slate-700 disabled:bg-slate-100"
         />
@@ -1212,7 +1231,13 @@ function AddMemberForm({ groupId, canInvite, compact = false, onSuccess }) {
         </button>
       </div>
 
-      {/* Inline helper messages */}
+      {/* 📌 Helper note (same idea as PeoplePicker) */}
+      <p className="mt-1 text-xs text-slate-500">
+        For mobile numbers, please use full international format (e.g.{" "}
+        <span className="font-mono">+61…</span>).
+      </p>
+
+      {/* Inline helper messages (email / phone lookup) */}
       {showLookup && (
         <div className="mt-1 text-xs text-slate-600">
           {lookupLoading ? (
@@ -1221,13 +1246,14 @@ function AddMemberForm({ groupId, canInvite, compact = false, onSuccess }) {
             <>
               User:{" "}
               <span className="font-medium">
-                {displayName(lookupUser)} ({lookupUser.email})
+                {displayName(lookupUser)}
+                {lookupUser.email ? ` (${lookupUser.email})` : ""}
               </span>
             </>
-          ) : lookupCheckedEmail ? (
+          ) : lookupCheckedValue ? (
             <>
               No account for{" "}
-              <span className="font-medium">{lookupCheckedEmail}</span> — an
+              <span className="font-medium">{lookupCheckedValue}</span> — an
               invite will be sent.
             </>
           ) : null}
