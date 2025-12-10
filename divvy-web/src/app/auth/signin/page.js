@@ -8,6 +8,8 @@ import { FcGoogle } from "react-icons/fc";
 import Image from "next/image";
 import Link from "next/link";
 
+import { processPendingInvite } from "@/lib/inviteClient"; // ⭐ NEW
+
 export default function SignInPage() {
   const router = useRouter();
   const [email, setEmail] = useState("");
@@ -198,6 +200,26 @@ export default function SignInPage() {
         /* ignore */
       }
 
+      // ⭐ NEW: process any pending invite after successful login
+      try {
+        const inviteResult = await processPendingInvite();
+
+        if (inviteResult.success) {
+          if (inviteResult.context === "group" && inviteResult.groupId) {
+            router.replace(`/groups/${inviteResult.groupId}`);
+            return;
+          }
+
+          if (inviteResult.context === "contact") {
+            router.replace("/contacts");
+            return;
+          }
+        }
+      } catch (e) {
+        console.warn("Failed to process pending invite:", e);
+      }
+
+      // Default fallback if no invite was handled
       router.replace("/groups");
     } catch (err) {
       setError(err.message || "Login failed");

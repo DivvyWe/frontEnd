@@ -21,6 +21,8 @@ const nameOf = (u) =>
   (u?.phone || "").replace("+", "＋") ||
   "Someone";
 
+const INVITES_ENDPOINT = "/api/proxy/invites"; // ⭐ contact invite
+
 /* ------------------------------ component ------------------------------ */
 export default function AddContactModal({ open, onClose, onAdd }) {
   const [q, setQ] = useState("");
@@ -33,6 +35,75 @@ export default function AddContactModal({ open, onClose, onAdd }) {
 
   const abortRef = useRef(null);
   const inputRef = useRef(null);
+
+  // ⭐ invite sharing state
+  const [inviteSharing, setInviteSharing] = useState(false);
+
+  // Generate & share a CONTACT invite link
+  async function generateAndShareContactInvite() {
+    const label = q.trim();
+
+    setInviteSharing(true);
+    try {
+      const res = await fetch(INVITES_ENDPOINT, {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          Accept: "application/json",
+        },
+        credentials: "include",
+        body: JSON.stringify({
+          context: "contact",
+        }),
+      });
+
+      const data = await res.json().catch(() => ({}));
+
+      if (!res.ok || !data?.inviteUrl) {
+        console.warn("Failed to generate contact invite link:", data?.message);
+        alert("Could not generate invite link. Please try again.");
+        return;
+      }
+
+      const inviteUrl = data.inviteUrl;
+      const shareText = label
+        ? `I tried to add you (${label}) on Divsez.\n\nJoin using this link so we can split expenses easily:\n\n${inviteUrl}`
+        : `Join me on Divsez so we can split and track expenses together:\n\n${inviteUrl}`;
+
+      // Prefer Web Share API (WhatsApp, SMS, Messenger, etc.)
+      if (typeof navigator !== "undefined" && navigator.share) {
+        try {
+          await navigator.share({
+            title: "Join me on Divsez",
+            text: shareText,
+            url: inviteUrl,
+          });
+          return;
+        } catch (err) {
+          console.warn("navigator.share failed (cancelled or error):", err);
+          // fall through to clipboard
+        }
+      }
+
+      // Fallback: copy link to clipboard
+      if (typeof navigator !== "undefined" && navigator.clipboard) {
+        try {
+          await navigator.clipboard.writeText(inviteUrl);
+          alert(
+            "Invite link copied to your clipboard.\n\nPaste it into WhatsApp, SMS, Messenger, etc. to invite them to Divsez."
+          );
+          return;
+        } catch (err) {
+          console.warn("Clipboard write failed:", err);
+        }
+      }
+
+      // Final fallback: just show the link
+      alert(`Share this invite link with your friend:\n\n${inviteUrl}`);
+    } finally {
+      setInviteSharing(false);
+    }
+  }
 
   const doSearch = useMemo(
     () =>
@@ -119,6 +190,7 @@ export default function AddContactModal({ open, onClose, onAdd }) {
       setResult(null);
       setSearching(false);
       setLastKind(null);
+      setInviteSharing(false);
       setTimeout(() => inputRef.current?.focus(), 60);
     } else {
       setQ("");
@@ -126,6 +198,7 @@ export default function AddContactModal({ open, onClose, onAdd }) {
       setResult(null);
       setSearching(false);
       setLastKind(null);
+      setInviteSharing(false);
       if (abortRef.current) abortRef.current.abort();
     }
   }, [open]);
@@ -246,8 +319,6 @@ export default function AddContactModal({ open, onClose, onAdd }) {
                   <button
                     type="button"
                     onClick={() => {
-                      // if you are already on /contacts this just closes modal;
-                      // if you trigger modal somewhere else it navigates there
                       if (window.location.pathname === "/contacts") {
                         onClose?.();
                       } else {
@@ -271,10 +342,32 @@ export default function AddContactModal({ open, onClose, onAdd }) {
               )}
             </div>
 
-            {/* No user message */}
+            {/* No user message + Invite via link */}
             {showNoUser && (
-              <div className="text-sm text-slate-500">
-                No user found with that email or verified phone number.
+              <div className="space-y-2 text-sm text-slate-600">
+                <div>
+                  No user found with that email or verified phone number.
+                </div>
+                <button
+                  type="button"
+                  disabled={inviteSharing}
+                  onClick={generateAndShareContactInvite}
+                  className="inline-flex items-center gap-1 rounded-full border border-emerald-200 bg-emerald-50 px-3 py-1.5 text-xs font-medium text-emerald-800 hover:bg-emerald-100 disabled:opacity-60"
+                >
+                  {inviteSharing ? (
+                    <>
+                      <span className="h-3 w-3 animate-spin rounded-full border-2 border-emerald-300 border-t-emerald-700" />
+                      Preparing invite link…
+                    </>
+                  ) : (
+                    <>
+                      <span>Invite via link</span>
+                      <span className="text-[10px] text-emerald-700">
+                        (Share by WhatsApp, SMS, etc.)
+                      </span>
+                    </>
+                  )}
+                </button>
               </div>
             )}
 

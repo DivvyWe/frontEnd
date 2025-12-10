@@ -1070,6 +1070,9 @@ function AddMemberForm({ groupId, canInvite, compact = false, onSuccess }) {
   const [lookupUser, setLookupUser] = useState(null);
   const [lookupCheckedValue, setLookupCheckedValue] = useState("");
 
+  // ⭐ NEW: invite sharing state
+  const [inviteSharing, setInviteSharing] = useState(false);
+
   const isCompleteEmail = (v) =>
     /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test((v || "").trim());
 
@@ -1087,6 +1090,54 @@ function AddMemberForm({ groupId, canInvite, compact = false, onSuccess }) {
     (u?.email ? u.email.split("@")[0] : "") ||
     u?._id ||
     "";
+
+  // ⭐ helper to share group invite link (for non-existing users)
+  async function shareGroupInviteLink(inviteUrl, identifierLabel) {
+    if (!inviteUrl) return;
+
+    setInviteSharing(true);
+    try {
+      const label = (identifierLabel || "").trim();
+      const baseLine =
+        "Join my group on Divsez so we can split and track expenses easily.";
+      const shareText = label
+        ? `I tried to add you (${label}) to my group on Divsez.\n\n${baseLine}\n\n${inviteUrl}`
+        : `${baseLine}\n\n${inviteUrl}`;
+
+      // Prefer native share sheet on mobile
+      if (typeof navigator !== "undefined" && navigator.share) {
+        try {
+          await navigator.share({
+            title: "Join my group on Divsez",
+            text: shareText,
+            url: inviteUrl,
+          });
+          return;
+        } catch (err) {
+          // user cancelled or error → fall through to clipboard
+          // console.warn("navigator.share failed:", err);
+        }
+      }
+
+      // Fallback: copy invite link to clipboard
+      if (typeof navigator !== "undefined" && navigator.clipboard) {
+        try {
+          await navigator.clipboard.writeText(inviteUrl);
+          alert(
+            "Invite link copied to your clipboard.\n\nPaste it into WhatsApp, SMS, Messenger, etc. to invite them to this group."
+          );
+          return;
+        } catch (err) {
+          // console.warn("clipboard failed:", err);
+        }
+      }
+
+      // Final fallback: plain alert with URL
+      alert(`Share this invite link with them:\n\n${inviteUrl}`);
+    } finally {
+      setInviteSharing(false);
+    }
+  }
 
   // Debounced lookup when identifier looks like email or +phone
   useEffect(() => {
@@ -1153,7 +1204,8 @@ function AddMemberForm({ groupId, canInvite, compact = false, onSuccess }) {
     };
   }, [identifier]);
 
-  const disabled = !canInvite || submitting || !identifier.trim();
+  const disabled =
+    !canInvite || submitting || inviteSharing || !identifier.trim();
   const showLookup =
     isCompleteEmail(identifier.trim()) || looksLikeIntlPhone(identifier.trim());
 
@@ -1184,7 +1236,21 @@ function AddMemberForm({ groupId, canInvite, compact = false, onSuccess }) {
         user: lookupUser || null,
       });
 
-      setMsg(json?.invited ? "Invite sent." : "Member added.");
+      if (json?.invited) {
+        // New behaviour: we expect backend to HAVE NOT sent SMS/email.
+        // If inviteUrl exists, trigger share flow.
+        if (json?.inviteUrl) {
+          setMsg("Invite link ready. Share it with them.");
+          // fire-and-forget, UI already shows success
+          shareGroupInviteLink(json.inviteUrl, value);
+        } else {
+          // Fallback if backend not yet updated to send inviteUrl
+          setMsg("Invite created. Please share the link from your invites.");
+        }
+      } else {
+        setMsg("Member added.");
+      }
+
       setIdentifier("");
       setLookupUser(null);
       setLookupCheckedValue("");
@@ -1215,7 +1281,7 @@ function AddMemberForm({ groupId, canInvite, compact = false, onSuccess }) {
             setMsg("");
           }}
           placeholder="Email, mobile (+61…), or username"
-          disabled={!canInvite || submitting}
+          disabled={!canInvite || submitting || inviteSharing}
           className="min-w-0 flex-1 rounded-md border border-slate-300 bg-white px-3 py-2 text-sm text-slate-700 disabled:bg-slate-100"
         />
         <button
@@ -1227,7 +1293,11 @@ function AddMemberForm({ groupId, canInvite, compact = false, onSuccess }) {
               : "border border-slate-300 bg-white text-slate-700 hover:bg-slate-100"
           }`}
         >
-          {submitting ? <Loader2 className="h-4 w-4 animate-spin" /> : "Invite"}
+          {submitting || inviteSharing ? (
+            <Loader2 className="h-4 w-4 animate-spin" />
+          ) : (
+            "Invite"
+          )}
         </button>
       </div>
 
@@ -1254,7 +1324,7 @@ function AddMemberForm({ groupId, canInvite, compact = false, onSuccess }) {
             <>
               No account for{" "}
               <span className="font-medium">{lookupCheckedValue}</span> — an
-              invite will be sent.
+              invite link will be generated for you to share.
             </>
           ) : null}
         </div>

@@ -30,8 +30,12 @@ export default function GroupCreateModal({ open, onClose, onCreated }) {
   const [currencyDropdownOpen, setCurrencyDropdownOpen] = useState(false);
   const [currencyQuery, setCurrencyQuery] = useState("");
 
+  // ⭐ NEW: invite link / sharing state
+  const [inviteSharing, setInviteSharing] = useState(false);
+
   const CREATE_ENDPOINT = "/api/proxy/user/groups"; // POST /user/groups
   const CURRENCIES_ENDPOINT = "/api/proxy/groups/currencies"; // GET /groups/currencies
+  const INVITES_ENDPOINT = "/api/proxy/invites"; // ⭐ NEW: POST /invites
 
   useEffect(() => {
     if (open) {
@@ -46,6 +50,7 @@ export default function GroupCreateModal({ open, onClose, onCreated }) {
       setCurrencies([]);
       setCurrency("AUD");
       setCurrencyLoading(false);
+      setInviteSharing(false);
     }
 
     // whenever modal opens or closes, reset currency dropdown state
@@ -138,6 +143,76 @@ export default function GroupCreateModal({ open, onClose, onCreated }) {
     };
   }, [open]);
 
+  // ⭐ NEW: helper to generate & share group invite link
+  async function generateAndShareGroupInvite(groupId, groupName) {
+    if (!groupId) return;
+
+    setInviteSharing(true);
+    try {
+      const res = await fetch(INVITES_ENDPOINT, {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          Accept: "application/json",
+        },
+        credentials: "include",
+        body: JSON.stringify({
+          context: "group",
+          groupId,
+        }),
+      });
+
+      const data = await res.json().catch(() => ({}));
+
+      if (!res.ok || !data?.inviteUrl) {
+        console.warn("Failed to generate group invite link:", data?.message);
+        return;
+      }
+
+      const inviteUrl = data.inviteUrl;
+      const prettyName = groupName || "my Divsez group";
+      const shareText = `Join my group "${prettyName}" on Divsez so we can split and track expenses together:\n\n${inviteUrl}`;
+
+      // 🧩 If browser supports Web Share API, let user pick app (WhatsApp, SMS, Messenger, etc.)
+      if (typeof navigator !== "undefined" && navigator.share) {
+        try {
+          await navigator.share({
+            title: `Join "${prettyName}" on Divsez`,
+            text: shareText,
+            url: inviteUrl,
+          });
+          return;
+        } catch (err) {
+          console.warn(
+            "navigator.share failed (user cancelled or error):",
+            err
+          );
+          // fall through to clipboard fallback
+        }
+      }
+
+      // 💾 Fallback: copy to clipboard and show simple message
+      if (typeof navigator !== "undefined" && navigator.clipboard) {
+        try {
+          await navigator.clipboard.writeText(inviteUrl);
+          alert(
+            "Group created! Invite link copied to your clipboard.\n\nPaste it into WhatsApp, SMS, Messenger, etc. to invite people who are not on Divsez yet."
+          );
+          return;
+        } catch (err) {
+          console.warn("Clipboard write failed:", err);
+        }
+      }
+
+      // Last-resort fallback
+      alert(
+        `Group created!\n\nShare this invite link with your friends:\n\n${inviteUrl}`
+      );
+    } finally {
+      setInviteSharing(false);
+    }
+  }
+
   async function handleSubmit(e) {
     e.preventDefault();
     if (!name.trim()) {
@@ -173,6 +248,7 @@ export default function GroupCreateModal({ open, onClose, onCreated }) {
         router.replace("/auth/signin");
         return;
       }
+
       const group = data?.group || data;
       const groupId = group?._id;
       if (!res.ok || !groupId) {
@@ -180,6 +256,14 @@ export default function GroupCreateModal({ open, onClose, onCreated }) {
         return;
       }
 
+      // ⭐ NEW: immediately generate + share invite link for this group
+      try {
+        await generateAndShareGroupInvite(groupId, group?.name || name.trim());
+      } catch (err) {
+        console.warn("generateAndShareGroupInvite failed:", err);
+      }
+
+      // existing behaviour: notify parent + go to group page
       onCreated?.(group);
       onClose?.();
       router.push(`/groups/${groupId}`);
@@ -473,13 +557,13 @@ export default function GroupCreateModal({ open, onClose, onCreated }) {
               </button>
               <button
                 type="submit"
-                disabled={submitting || !name.trim()}
+                disabled={submitting || !name.trim() || inviteSharing}
                 className="inline-flex items-center gap-2 rounded-lg bg-[#84CC16] px-3 py-2 text-sm font-semibold text-white hover:bg-[#76b514] disabled:opacity-60"
               >
-                {submitting ? (
+                {submitting || inviteSharing ? (
                   <>
                     <span className="h-4 w-4 animate-spin rounded-full border-2 border-white/20 border-t-white" />
-                    Creating…
+                    {inviteSharing ? "Sharing invite…" : "Creating…"}
                   </>
                 ) : (
                   <>

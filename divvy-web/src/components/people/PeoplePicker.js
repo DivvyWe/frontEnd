@@ -8,6 +8,7 @@ import { useRouter } from "next/navigation";
 // ✅ Correct proxy paths
 const CONTACTS_ENDPOINT = "/api/proxy/contacts/user/contacts";
 const SEARCH_ENDPOINT = "/api/proxy/user/search";
+const INVITES_ENDPOINT = "/api/proxy/invites"; // ⭐ NEW: contact invite
 
 const toTitle = (s = "") =>
   String(s)
@@ -41,6 +42,10 @@ export default function PeoplePicker({ onChangeSelected }) {
   const [searchError, setSearchError] = useState("");
   const debounceRef = useRef(null);
   const lastLookedUpRef = useRef("");
+
+  // ⭐ NEW: invite via link when user not found
+  const [inviteSharing, setInviteSharing] = useState(false);
+  const [lastInviteLabel, setLastInviteLabel] = useState("");
 
   // Load contacts from /api/contacts
   useEffect(() => {
@@ -121,6 +126,76 @@ export default function PeoplePicker({ onChangeSelected }) {
     });
   }, [contacts, selectedIds]);
 
+  // ⭐ NEW: generate & share a CONTACT invite link
+  async function generateAndShareContactInvite(labelHint = "") {
+    setInviteSharing(true);
+    try {
+      const res = await fetch(INVITES_ENDPOINT, {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          Accept: "application/json",
+        },
+        credentials: "include",
+        body: JSON.stringify({
+          context: "contact",
+        }),
+      });
+
+      if (res.status === 401) {
+        router.replace("/auth/signin");
+        return;
+      }
+
+      const data = await res.json().catch(() => ({}));
+
+      if (!res.ok || !data?.inviteUrl) {
+        console.warn("Failed to generate contact invite link:", data?.message);
+        alert("Could not generate invite link. Please try again.");
+        return;
+      }
+
+      const inviteUrl = data.inviteUrl;
+      const label = labelHint?.trim();
+      const shareText = label
+        ? `I tried to add you (${label}) on Divsez.\n\nJoin using this link so we can split expenses easily:\n\n${inviteUrl}`
+        : `Join me on Divsez so we can split and track expenses together:\n\n${inviteUrl}`;
+
+      // 🧩 Prefer Web Share API (mobile: WhatsApp, SMS, Messenger, etc.)
+      if (typeof navigator !== "undefined" && navigator.share) {
+        try {
+          await navigator.share({
+            title: "Join me on Divsez",
+            text: shareText,
+            url: inviteUrl,
+          });
+          return;
+        } catch (err) {
+          console.warn("navigator.share failed (cancelled or error):", err);
+          // fall through to clipboard
+        }
+      }
+
+      // 💾 Fallback: copy link to clipboard
+      if (typeof navigator !== "undefined" && navigator.clipboard) {
+        try {
+          await navigator.clipboard.writeText(inviteUrl);
+          alert(
+            "Invite link copied to your clipboard.\n\nPaste it into WhatsApp, SMS, Messenger, etc. to invite them to Divsez."
+          );
+          return;
+        } catch (err) {
+          console.warn("Clipboard write failed:", err);
+        }
+      }
+
+      // Last fallback: just show the link
+      alert(`Share this invite link with your friend:\n\n${inviteUrl}`);
+    } finally {
+      setInviteSharing(false);
+    }
+  }
+
   // ---------- Unified lookup: email OR phone ----------
   async function runLookup(raw) {
     if (!raw || raw === lastLookedUpRef.current) return;
@@ -128,6 +203,7 @@ export default function PeoplePicker({ onChangeSelected }) {
 
     setSearchError("");
     setDropdownUser(null);
+    setLastInviteLabel(""); // reset
 
     const trimmed = raw.trim();
     const lower = trimmed.toLowerCase();
@@ -174,15 +250,19 @@ export default function PeoplePicker({ onChangeSelected }) {
       if (res.status === 404) {
         setSearchError("No user found for that email or phone.");
         setDropdownUser(null);
+        setLastInviteLabel(trimmed); // ⭐ remember what we searched for
       } else if (!res.ok) {
         const j = await res.json().catch(() => ({}));
         setSearchError(j?.message || "Search failed.");
+        setLastInviteLabel("");
       } else {
         const user = await res.json();
         setDropdownUser(user); // one-click to select
+        setLastInviteLabel("");
       }
     } catch {
       setSearchError("Search failed.");
+      setLastInviteLabel("");
     } finally {
       setSearching(false);
     }
@@ -193,6 +273,7 @@ export default function PeoplePicker({ onChangeSelected }) {
     const q = query.trim();
     setSearchError("");
     setDropdownUser(null);
+    setLastInviteLabel("");
 
     if (!q) return;
 
@@ -232,16 +313,17 @@ export default function PeoplePicker({ onChangeSelected }) {
         <input
           value={query}
           onChange={(e) => {
-            setQuery(e.target.value);
+            setQuery(e.value?.target ?? e.target.value);
             setDropdownUser(null);
             setSearchError("");
+            setLastInviteLabel("");
           }}
           onBlur={onBlurTry}
           placeholder="Type an email or mobile number…"
           className="w-full rounded-lg border border-slate-300 pl-8 pr-3 py-2 text-sm outline-none focus:border-[#84CC16] focus:ring-2 focus:ring-[#84CC16]/25"
         />
         <p className="mt-1 text-xs text-slate-500">
-          For mobile numbers,pleas use international format (e.g.{" "}
+          For mobile numbers, please use international format (e.g.{" "}
           <span className="font-mono">+61…</span>).
         </p>
         {/* Suggestion (existing user from /user/search) */}
@@ -267,12 +349,38 @@ export default function PeoplePicker({ onChangeSelected }) {
         ) : null}
       </div>
 
-      {/* Search status */}
+      {/* Search status + invite option */}
       {searching ? (
         <div className="text-xs text-slate-500">Searching…</div>
-      ) : searchError ? (
-        <div className="text-xs text-rose-600">{searchError}</div>
-      ) : null}
+      ) : (
+        <>
+          {searchError && (
+            <div className="text-xs text-rose-600">{searchError}</div>
+          )}
+
+          {searchError && lastInviteLabel && (
+            <div className="mt-1">
+              <button
+                type="button"
+                disabled={inviteSharing}
+                onClick={() => generateAndShareContactInvite(lastInviteLabel)}
+                className="inline-flex items-center gap-1 rounded-full border border-emerald-200 bg-emerald-50 px-3 py-1 text-xs font-medium text-emerald-800 hover:bg-emerald-100 disabled:opacity-60"
+              >
+                {inviteSharing ? (
+                  <>
+                    <span className="h-3 w-3 animate-spin rounded-full border-2 border-emerald-300 border-t-emerald-700" />
+                    Sending invite link…
+                  </>
+                ) : (
+                  <>
+                    <span>Click here to send invite link.</span>
+                  </>
+                )}
+              </button>
+            </div>
+          )}
+        </>
+      )}
 
       {/* Contacts */}
       {loadingContacts ? (

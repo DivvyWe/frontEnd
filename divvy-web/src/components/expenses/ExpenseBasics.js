@@ -75,9 +75,12 @@ export default function ExpenseBasics({
   const [localImageUrl, setLocalImageUrl] = useState(null);
   const [fileName, setFileName] = useState("");
   const [isMobile, setIsMobile] = useState(false);
-  const fileRef = useRef(null);
 
-  // 🧠 Detect mobile to change UI (desktop: dropzone, mobile: camera/gallery button)
+  // 🔹 Separate refs for desktop/gallery vs camera
+  const galleryInputRef = useRef(null); // used for gallery + desktop "browse"
+  const cameraInputRef = useRef(null); // used only on mobile "Take photo"
+
+  // 🧠 Detect mobile to change UI (desktop: dropzone, mobile: camera/gallery buttons)
   useEffect(() => {
     if (typeof window === "undefined") return;
     const ua = window.navigator.userAgent || "";
@@ -85,7 +88,8 @@ export default function ExpenseBasics({
   }, []);
 
   const resetFileInput = () => {
-    if (fileRef.current) fileRef.current.value = "";
+    if (galleryInputRef.current) galleryInputRef.current.value = "";
+    if (cameraInputRef.current) cameraInputRef.current.value = "";
   };
 
   const parseFile = useCallback(
@@ -366,7 +370,7 @@ export default function ExpenseBasics({
           onClick={() => {
             if (!parsing && !submitting && !isMobile) {
               // desktop: clicking box opens file picker
-              fileRef.current?.click();
+              galleryInputRef.current?.click();
             }
           }}
           className={[
@@ -384,16 +388,32 @@ export default function ExpenseBasics({
           {!localImageUrl ? (
             isMobile ? (
               <div className="flex flex-col items-center justify-center gap-3 text-center">
-                <button
-                  type="button"
-                  onClick={() => {
-                    if (!parsing && !submitting) fileRef.current?.click();
-                  }}
-                  className="inline-flex items-center gap-2 rounded-lg border border-slate-200 bg-slate-900 px-4 py-2 text-sm font-medium text-white shadow-sm active:scale-[0.99]"
-                >
-                  <Upload className="h-4 w-4" />
-                  Open camera / gallery
-                </button>
+                <div className="flex flex-col w-full max-w-xs gap-2">
+                  <button
+                    type="button"
+                    onClick={() => {
+                      if (!parsing && !submitting) {
+                        cameraInputRef.current?.click();
+                      }
+                    }}
+                    className="inline-flex items-center justify-center gap-2 rounded-lg border border-slate-200 bg-slate-900 px-4 py-2 text-sm font-medium text-white shadow-sm active:scale-[0.99]"
+                  >
+                    <Upload className="h-4 w-4" />
+                    Take photo
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      if (!parsing && !submitting) {
+                        galleryInputRef.current?.click();
+                      }
+                    }}
+                    className="inline-flex items-center justify-center gap-2 rounded-lg border border-slate-200 bg-white px-4 py-2 text-sm font-medium text-slate-800 shadow-sm active:scale-[0.99]"
+                  >
+                    <Upload className="h-4 w-4" />
+                    Choose from gallery
+                  </button>
+                </div>
                 <p className="text-xs text-slate-500">
                   We&apos;ll read the total and store name automatically. You
                   can still edit everything before saving.
@@ -415,7 +435,9 @@ export default function ExpenseBasics({
                     <span
                       onClick={(e) => {
                         e.stopPropagation();
-                        if (!parsing && !submitting) fileRef.current?.click();
+                        if (!parsing && !submitting) {
+                          galleryInputRef.current?.click();
+                        }
                       }}
                       className="cursor-pointer font-semibold text-slate-900 underline decoration-slate-300 underline-offset-4 hover:text-[#84CC16] hover:decoration-[#84CC16]"
                     >
@@ -447,7 +469,7 @@ export default function ExpenseBasics({
                 </p>
                 <p className="text-xs text-slate-500">
                   {isMobile
-                    ? "Tap the button below to replace"
+                    ? "Tap a button below to replace"
                     : "Click or drop to replace"}
                 </p>
                 {parseError && (
@@ -474,11 +496,21 @@ export default function ExpenseBasics({
             </div>
           )}
 
-          {/* Hidden file input – reused for both desktop + mobile */}
+          {/* Hidden file inputs */}
+          {/* Desktop + gallery picker */}
           <input
-            ref={fileRef}
+            ref={galleryInputRef}
             type="file"
             accept="image/*"
+            onChange={handleFileChange}
+            className="hidden"
+          />
+          {/* Mobile camera (hint to open camera) */}
+          <input
+            ref={cameraInputRef}
+            type="file"
+            accept="image/*"
+            capture="environment"
             onChange={handleFileChange}
             className="hidden"
           />
