@@ -37,7 +37,7 @@ export default function InvitePage() {
           setMessage("You need to sign in to accept this invite. Redirecting…");
 
           router.push(
-            `/login?inviteToken=${encodeURIComponent(String(token))}`
+            `/auth/signin?inviteToken=${encodeURIComponent(String(token))}`
           );
           return;
         }

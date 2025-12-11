@@ -1212,10 +1212,72 @@ function AddMemberForm({ groupId, canInvite, compact = false, onSuccess }) {
   const onSubmit = async (e) => {
     e.preventDefault();
     if (disabled) return;
+
     setSubmitting(true);
     setMsg("");
+
+    const value = identifier.trim();
+
     try {
-      const value = identifier.trim();
+      const looksLikeContact =
+        isCompleteEmail(value) || looksLikeIntlPhone(value);
+
+      // 🧩 CASE 1: no existing account → generate GROUP invite link via /api/invites
+      //
+      // Only do this when:
+      //  - input looks like an email or +phone, AND
+      //  - lookup has finished, AND
+      //  - no user was found
+      if (looksLikeContact && showLookup && !lookupLoading && !lookupUser) {
+        const res = await fetch("/api/proxy/invites", {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json",
+            Accept: "application/json",
+          },
+          body: JSON.stringify({
+            context: "group",
+            groupId,
+          }),
+        });
+
+        const json = await res.json().catch(() => ({}));
+        if (!res.ok) {
+          throw new Error(json?.message || "Failed to create invite link");
+        }
+
+        const inviteUrl =
+          json.inviteUrl ||
+          json?.invite?.inviteUrl ||
+          json?.invite?.url ||
+          null;
+
+        // Tell parent that an invite exists (so pending list can update)
+        onSuccess?.({
+          invited: true,
+          member: null,
+          inviteStatus: "pending",
+          identifier: value,
+          user: null,
+        });
+
+        if (inviteUrl) {
+          setMsg("Invite link ready. Share it with them.");
+          // share via native share sheet / clipboard / alert
+          shareGroupInviteLink(inviteUrl, value);
+        } else {
+          setMsg(
+            "Invite created. Share the group invite link with them from your browser or app."
+          );
+        }
+
+        setIdentifier("");
+        setLookupUser(null);
+        setLookupCheckedValue("");
+        return; // ✅ done for the no-account case
+      }
+
+      // 🧩 CASE 2: existing user (or username) → use /groups/:groupId/members
       const res = await fetch(`/api/proxy/groups/${groupId}/members`, {
         method: "POST",
         headers: {
@@ -1224,10 +1286,10 @@ function AddMemberForm({ groupId, canInvite, compact = false, onSuccess }) {
         },
         body: JSON.stringify({ identifier: value }),
       });
+
       const json = await res.json().catch(() => ({}));
       if (!res.ok) throw new Error(json?.message || "Failed to add member");
 
-      // ✅ Optimistic update callback to parent
       onSuccess?.({
         invited: !!json?.invited,
         member: json?.member || null,
@@ -1237,16 +1299,7 @@ function AddMemberForm({ groupId, canInvite, compact = false, onSuccess }) {
       });
 
       if (json?.invited) {
-        // New behaviour: we expect backend to HAVE NOT sent SMS/email.
-        // If inviteUrl exists, trigger share flow.
-        if (json?.inviteUrl) {
-          setMsg("Invite link ready. Share it with them.");
-          // fire-and-forget, UI already shows success
-          shareGroupInviteLink(json.inviteUrl, value);
-        } else {
-          // Fallback if backend not yet updated to send inviteUrl
-          setMsg("Invite created. Please share the link from your invites.");
-        }
+        setMsg("Invite created. They’ll see it when they open Divsez.");
       } else {
         setMsg("Member added.");
       }
