@@ -95,6 +95,90 @@ export default function RootLayout({ children }) {
           })();
         `}</Script>
 
+        {/* -------- Push subscription (auto-register for logged-in users) -------- */}
+        <Script id="push-subscribe" strategy="afterInteractive">{`
+          (function () {
+            if (typeof window === 'undefined') return;
+            if (!('serviceWorker' in navigator) || !('Notification' in window)) {
+              console.debug('[Push] No SW or Notification support, skipping push subscription');
+              return;
+            }
+
+            var PUBLIC_KEY = '${
+              process.env.NEXT_PUBLIC_VAPID_PUBLIC_KEY || ""
+            }';
+            if (!PUBLIC_KEY) {
+              console.warn('[Push] Missing NEXT_PUBLIC_VAPID_PUBLIC_KEY; skipping push subscription');
+              return;
+            }
+
+            // Avoid running this multiple times (HMR / soft nav)
+            if (window.__pushSubInit) return;
+            window.__pushSubInit = true;
+
+            function urlBase64ToUint8Array(base64String) {
+              var padding = '='.repeat((4 - (base64String.length % 4)) % 4);
+              var base64 = (base64String + padding).replace(/-/g, '+').replace(/_/g, '/');
+              var rawData = atob(base64);
+              var outputArray = new Uint8Array(rawData.length);
+              for (var i = 0; i < rawData.length; ++i) {
+                outputArray[i] = rawData.charCodeAt(i);
+              }
+              return outputArray;
+            }
+
+            async function registerPush() {
+              try {
+                // Respect user: if they've already denied, don't bother
+                if (Notification.permission === 'denied') {
+                  console.debug('[Push] Permission previously denied, not prompting again');
+                  return;
+                }
+
+                var permission = await Notification.requestPermission();
+                if (permission !== 'granted') {
+                  console.debug('[Push] Permission not granted:', permission);
+                  return;
+                }
+
+                // Wait for the SW that sw-register just installed
+                var reg = await navigator.serviceWorker.ready;
+
+                var sub = await reg.pushManager.getSubscription();
+                if (!sub) {
+                  sub = await reg.pushManager.subscribe({
+                    userVisibleOnly: true,
+                    applicationServerKey: urlBase64ToUint8Array(PUBLIC_KEY),
+                  });
+                }
+
+                var payload = sub.toJSON ? sub.toJSON() : {
+                  endpoint: sub.endpoint,
+                  keys: sub.keys || {},
+                };
+                payload.ua = navigator.userAgent || '';
+
+                await fetch('/api/proxy/push/subscribe', {
+                  method: 'POST',
+                  headers: { 'Content-Type': 'application/json' },
+                  credentials: 'include',
+                  body: JSON.stringify(payload),
+                });
+
+                console.debug('[Push] Subscription sent to backend');
+              } catch (err) {
+                console.error('[Push] Failed to subscribe:', err);
+              }
+            }
+
+            // Run after full load so SW registration has happened
+            window.addEventListener('load', function () {
+              // small delay to let sw-register script finish
+              setTimeout(registerPush, 1000);
+            });
+          })();
+        `}</Script>
+
         {/* -------- PWA install hooks (mobile only) -------- */}
         <Script id="pwa-install-hooks" strategy="afterInteractive">{`
           (function () {

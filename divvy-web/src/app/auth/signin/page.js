@@ -8,7 +8,7 @@ import { FcGoogle } from "react-icons/fc";
 import Image from "next/image";
 import Link from "next/link";
 
-import { processPendingInvite } from "@/lib/inviteClient"; // ⭐ NEW
+import { processPendingInvite } from "@/lib/inviteClient";
 
 export default function SignInPage() {
   const router = useRouter();
@@ -20,14 +20,13 @@ export default function SignInPage() {
 
   // 🔐 Email verification state
   const [verificationBlocked, setVerificationBlocked] = useState(false);
-  const [pendingEmail, setPendingEmail] = useState(""); // email used for sign-in
+  const [pendingEmail, setPendingEmail] = useState("");
   const [resending, setResending] = useState(false);
   const [cooldown, setCooldown] = useState(0);
   const cooldownRef = useRef(null);
 
   const isValid = email.trim() && password.trim();
 
-  // Cleanup cooldown timer
   useEffect(() => {
     return () => {
       if (cooldownRef.current) clearInterval(cooldownRef.current);
@@ -53,60 +52,6 @@ export default function SignInPage() {
     window.location.assign("/api/proxy/auth/google");
   }
 
-  // Helper: delete any existing token cookie variants
-  function deleteOldTokenCookies() {
-    // delete host-only (no Domain) cookie
-    document.cookie = [
-      "token=",
-      "Path=/",
-      "Max-Age=0",
-      // SameSite not required for deletion, but harmless
-      "SameSite=Lax",
-    ].join("; ");
-
-    // delete parent-domain cookie (if present)
-    document.cookie = [
-      "token=",
-      "Domain=.divsez.com",
-      "Path=/",
-      "Max-Age=0",
-      "SameSite=None",
-      "Secure",
-    ].join("; ");
-  }
-
-  // Helper: set the new cross-subdomain cookie
-  function setTokenCookie(token) {
-    const host = typeof window !== "undefined" ? window.location.hostname : "";
-    const isHttps =
-      typeof window !== "undefined" && window.location.protocol === "https:";
-    const onDivsezDomain = /\.divsez\.com$/i.test(host);
-
-    // In production on *.divsez.com → share across subdomains
-    if (isHttps && onDivsezDomain) {
-      document.cookie = [
-        `token=${token}`,
-        "Domain=.divsez.com",
-        "Path=/",
-        "Max-Age=31536000", // 1 year
-        "SameSite=None", // required for cross-site
-        "Secure", // required with SameSite=None
-      ].join("; ");
-      return;
-    }
-
-    // Fallback for local/dev (no Domain, no SameSite=None)
-    document.cookie = [
-      `token=${token}`,
-      "Path=/",
-      "Max-Age=31536000",
-      isHttps ? "Secure" : null,
-      "SameSite=Lax",
-    ]
-      .filter(Boolean)
-      .join("; ");
-  }
-
   async function handleResendVerification() {
     if (!pendingEmail || resending || cooldown > 0) return;
 
@@ -118,6 +63,7 @@ export default function SignInPage() {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ email: pendingEmail }),
+        cache: "no-store",
       });
 
       if (!res.ok) {
@@ -127,7 +73,6 @@ export default function SignInPage() {
         );
       }
 
-      // Cooldown to avoid hammering
       startCooldown(30);
     } catch (e) {
       setError(e.message || "Could not resend verification email.");
@@ -139,6 +84,7 @@ export default function SignInPage() {
   async function onSubmit(e) {
     e.preventDefault();
     if (!isValid || submitting) return;
+
     setSubmitting(true);
     setError("");
     setVerificationBlocked(false);
@@ -147,8 +93,8 @@ export default function SignInPage() {
     const trimmedEmail = email.trim();
 
     try {
-      // Use proxy so we never hardcode backend URL
-      const res = await fetch("/api/proxy/auth/login", {
+      // ✅ IMPORTANT: call Next route that sets HttpOnly cookie
+      const res = await fetch("/api/auth/login", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ email: trimmedEmail, password }),
@@ -178,29 +124,17 @@ export default function SignInPage() {
         throw new Error(data?.message || "Login failed");
       }
 
-      const token = data?.token;
-      if (!token) {
-        throw new Error("No token returned from server");
-      }
-
-      // 🔄 Clean up any old token cookies (host-only / wrong attrs)
-      deleteOldTokenCookies();
-
-      // ✅ Set cross-subdomain cookie for app + api
-      setTokenCookie(token);
-
-      // Optional: quick verify so user sees groups immediately
-      // (kept as-is; not strictly required)
+      // ✅ Optional: warm up profile using cookie (no Bearer token)
       try {
         await fetch("/api/proxy/auth/me", {
-          headers: { Authorization: `Bearer ${token}` },
+          credentials: "include",
           cache: "no-store",
         });
       } catch {
         /* ignore */
       }
 
-      // ⭐ NEW: process any pending invite after successful login
+      // ⭐ process any pending invite after successful login
       try {
         const inviteResult = await processPendingInvite();
 
@@ -209,7 +143,6 @@ export default function SignInPage() {
             router.replace(`/groups/${inviteResult.groupId}`);
             return;
           }
-
           if (inviteResult.context === "contact") {
             router.replace("/contacts");
             return;
@@ -219,7 +152,6 @@ export default function SignInPage() {
         console.warn("Failed to process pending invite:", e);
       }
 
-      // Default fallback if no invite was handled
       router.replace("/groups");
     } catch (err) {
       setError(err.message || "Login failed");
@@ -413,6 +345,7 @@ export default function SignInPage() {
             </a>
           </p>
         </div>
+
         <p className="mt-6 text-center text-xs text-slate-500">
           By continuing, you agree to our{" "}
           <Link

@@ -231,12 +231,53 @@ export default function ProfileClient({ initialMe }) {
   async function handleLogout() {
     if (loggingOut) return;
     setLoggingOut(true);
+
     try {
+      // ---------------------------
+      // 1. BACKEND LOGOUT
+      // ---------------------------
       await fetch("/api/auth/logout", {
         method: "POST",
         cache: "no-store",
       }).catch(() => {});
 
+      // ---------------------------
+      // 2. PUSH UNSUBSCRIBE + CACHE CLEAR + SW UNREGISTER
+      // ---------------------------
+      if (typeof window !== "undefined") {
+        try {
+          // --- A) Unsubscribe from push ---
+          if ("serviceWorker" in navigator) {
+            const regs = await navigator.serviceWorker.getRegistrations();
+            for (const reg of regs) {
+              try {
+                const sub = await reg.pushManager.getSubscription();
+                if (sub) await sub.unsubscribe();
+              } catch {
+                /* ignore errors */
+              }
+            }
+          }
+
+          // --- B) Clear Cache Storage ---
+          if ("caches" in window) {
+            const keys = await caches.keys();
+            await Promise.all(keys.map((key) => caches.delete(key)));
+          }
+
+          // --- C) Unregister Service Workers (optional but recommended) ---
+          if ("serviceWorker" in navigator) {
+            const regs = await navigator.serviceWorker.getRegistrations();
+            await Promise.all(regs.map((reg) => reg.unregister()));
+          }
+        } catch {
+          /* ignore cleanup errors */
+        }
+      }
+
+      // ---------------------------
+      // 3. CLEAR TOKEN COOKIE
+      // ---------------------------
       document.cookie = [
         "token=;",
         "Path=/",
@@ -247,6 +288,9 @@ export default function ProfileClient({ initialMe }) {
         .filter(Boolean)
         .join("; ");
 
+      // ---------------------------
+      // 4. REDIRECT
+      // ---------------------------
       router.replace("/auth/signin");
       router.refresh?.();
     } catch (e) {

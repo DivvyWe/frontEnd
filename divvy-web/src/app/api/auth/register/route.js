@@ -1,7 +1,11 @@
+// src/app/api/auth/register/route.js
 import { NextResponse } from "next/server";
 
+export const runtime = "nodejs";
+export const dynamic = "force-dynamic";
+
 export async function POST(req) {
-  const api = process.env.NEXT_PUBLIC_API_BASE;
+  const api = (process.env.NEXT_PUBLIC_API_BASE || "").replace(/\/$/, "");
   if (!api) {
     return NextResponse.json(
       { message: "API base not configured" },
@@ -17,8 +21,9 @@ export async function POST(req) {
   // 1) Register on backend
   const regRes = await fetch(`${api}/auth/register`, {
     method: "POST",
-    headers: { "Content-Type": "application/json" },
+    headers: { "Content-Type": "application/json", Accept: "application/json" },
     body: JSON.stringify({ username, password, email, phone }),
+    cache: "no-store",
   });
 
   // robust pass-through of backend errors (handles plain text or JSON)
@@ -36,14 +41,18 @@ export async function POST(req) {
   }
 
   // 2) Try token from register; if absent, login
-  let token = regData?.token;
+  let token = regData?.token || regData?.accessToken || regData?.data?.token;
   let user = regData?.user;
 
   if (!token) {
     const loginRes = await fetch(`${api}/auth/login`, {
       method: "POST",
-      headers: { "Content-Type": "application/json" },
+      headers: {
+        "Content-Type": "application/json",
+        Accept: "application/json",
+      },
       body: JSON.stringify({ password, ...(email ? { email } : { phone }) }),
+      cache: "no-store",
     });
 
     const loginRaw = await loginRes.text();
@@ -54,8 +63,10 @@ export async function POST(req) {
         return { message: loginRaw };
       }
     })();
+
     if (loginRes.ok) {
-      token = loginData?.token;
+      token =
+        loginData?.token || loginData?.accessToken || loginData?.data?.token;
       user = loginData?.user || user;
     }
   }
@@ -68,15 +79,16 @@ export async function POST(req) {
     });
   }
 
-  // 4) Set long-lived auth cookie (1 year)
+  // 4) Set long-lived auth cookie (1 year) - shared across subdomains in prod
   const isProd = process.env.NODE_ENV === "production";
   const res = NextResponse.json({ user: user ?? null });
 
   res.cookies.set("token", token, {
     httpOnly: true,
     secure: isProd,
-    sameSite: "lax",
+    sameSite: "lax", // ok for same-site subdomains
     path: "/",
+    domain: isProd ? ".divsez.com" : undefined, // ✅ important
     maxAge: 60 * 60 * 24 * 365, // 1 year
   });
 

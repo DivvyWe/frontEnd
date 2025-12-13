@@ -41,6 +41,17 @@ function normalisePhoneE164(localPhone, countryCode) {
   }
 }
 
+// ✅ remove undefined/null/empty-string fields
+function cleanPayload(obj) {
+  const out = {};
+  for (const [k, v] of Object.entries(obj)) {
+    if (v === undefined || v === null) continue;
+    if (typeof v === "string" && v.trim() === "") continue;
+    out[k] = v;
+  }
+  return out;
+}
+
 export default function SignUpPage() {
   const router = useRouter();
 
@@ -67,7 +78,6 @@ export default function SignUpPage() {
   const cooldownTimer = useRef(null);
 
   // phone OTP
-  const [hasSignupPhone, setHasSignupPhone] = useState(false);
   const [pendingPhoneE164, setPendingPhoneE164] = useState(null);
   const [phoneOtp, setPhoneOtp] = useState("");
   const [phoneLoading, setPhoneLoading] = useState(false);
@@ -83,15 +93,18 @@ export default function SignUpPage() {
   const validEmail = EMAIL_RE.test(trimmedEmail);
   const strongPwd = STRONG_PWD_RE.test(password);
   const matches = confirm === password && password.length > 0;
-  const phoneLooksOkay =
-    trimmedPhone.length === 0 || /\d{4,}/.test(trimmedPhone.replace(/\D/g, ""));
+
+  // ✅ PHONE REQUIRED NOW
+  const phoneDigits = trimmedPhone.replace(/\D/g, "");
+  const phoneProvided = phoneDigits.length > 0;
+  const phoneLooksOkay = phoneProvided && phoneDigits.length >= 6;
 
   const canSubmit =
     !!fullName.trim() &&
     validEmail &&
+    phoneLooksOkay && // ✅ required
     strongPwd &&
     matches &&
-    phoneLooksOkay &&
     agree &&
     !submitting;
 
@@ -117,7 +130,6 @@ export default function SignUpPage() {
     };
   }, []);
 
-  // Start countdown timer
   function startCooldown(seconds) {
     setCooldown(seconds);
     if (cooldownTimer.current) clearInterval(cooldownTimer.current);
@@ -139,31 +151,38 @@ export default function SignUpPage() {
     setError("");
 
     if (!validEmail) return setError("Please enter a valid email address.");
+
+    // ✅ phone required checks
+    if (!phoneProvided)
+      return setError("Mobile number is required to create an account.");
+    if (!phoneLooksOkay)
+      return setError(
+        "Invalid phone number. Please enter a full mobile number."
+      );
+
     if (!strongPwd)
       return setError(
         "Password must be 8+ chars and include uppercase, lowercase, number, and special character."
       );
     if (!matches) return setError("Passwords do not match.");
-    if (!phoneLooksOkay)
-      return setError(
-        "Invalid phone number. Use a full mobile number or leave it blank."
-      );
     if (!agree) return setError("Please agree to the Terms & Privacy.");
 
     setSubmitting(true);
     try {
-      const payload = {
+      // ✅ now always send phone + countryCode
+      const payload = cleanPayload({
         username: fullName.trim(),
-        email: trimmedEmail || undefined,
-        phone: trimmedPhone || undefined, // backend stores local format
+        email: trimmedEmail,
+        phone: trimmedPhone, // backend stores local format (your existing design)
         countryCode,
         password,
-      };
+      });
 
       const res = await fetch("/api/proxy/auth/register", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify(payload),
+        cache: "no-store",
       });
 
       const raw = await res.text();
@@ -189,13 +208,14 @@ export default function SignUpPage() {
         throw new Error(data?.message || "Registration failed");
       }
 
-      // normalise phone for Firebase
-      const e164 = trimmedPhone
-        ? normalisePhoneE164(trimmedPhone, countryCode)
-        : null;
+      // normalise phone for Firebase (required now, so should exist)
+      const e164 = normalisePhoneE164(trimmedPhone, countryCode);
+      if (!e164) {
+        // still allow email verify, but tell user phone OTP might fail
+        console.warn("Could not normalise phone to E.164");
+      }
 
       setPendingPhoneE164(e164);
-      setHasSignupPhone(!!e164);
 
       setVerifyEmail(trimmedEmail);
       setVerifyMode(true);
@@ -225,6 +245,7 @@ export default function SignUpPage() {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ email: verifyEmail }),
+        cache: "no-store",
       });
 
       if (!res.ok) {
@@ -243,7 +264,9 @@ export default function SignUpPage() {
   // -------- SEND SMS CODE --------
   async function sendSignupPhoneOtp() {
     if (!pendingPhoneE164) {
-      setPhoneError("No mobile number found for this signup.");
+      setPhoneError(
+        "Could not format your mobile number. Please go back and re-enter it."
+      );
       return;
     }
 
@@ -288,6 +311,7 @@ export default function SignUpPage() {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ email: verifyEmail, idToken }),
+        cache: "no-store",
       });
 
       const data = await res.json().catch(() => ({}));
@@ -310,25 +334,13 @@ export default function SignUpPage() {
 
   // AUTO-SEND SMS on verify screen load
   useEffect(() => {
-    if (
-      verifyMode &&
-      hasSignupPhone &&
-      pendingPhoneE164 &&
-      !phoneOtpSent &&
-      !phoneVerified
-    ) {
+    if (verifyMode && pendingPhoneE164 && !phoneOtpSent && !phoneVerified) {
       const timer = setTimeout(() => {
         sendSignupPhoneOtp().catch(() => {});
       }, 300);
       return () => clearTimeout(timer);
     }
-  }, [
-    verifyMode,
-    hasSignupPhone,
-    pendingPhoneE164,
-    phoneOtpSent,
-    phoneVerified,
-  ]);
+  }, [verifyMode, pendingPhoneE164, phoneOtpSent, phoneVerified]);
 
   // ===================== VERIFY MODE SCREEN =====================
   if (verifyMode) {
@@ -404,93 +416,96 @@ export default function SignUpPage() {
               </button>
             </div>
 
-            {/* PHONE VERIFY */}
-            {hasSignupPhone && pendingPhoneE164 && (
-              <div className="mt-8 rounded-xl border border-emerald-100 bg-white/70 px-4 py-3">
-                <h2 className="text-sm font-semibold text-slate-900">
-                  Verify your mobile number
-                </h2>
-                <p className="mt-1 text-xs text-slate-600">
-                  We’ll use your phone so friends can find you by mobile and
-                  invite you to groups. This step is optional but recommended.
-                </p>
+            {/* PHONE VERIFY (now effectively required during signup, but still can fail SMS) */}
+            <div className="mt-8 rounded-xl border border-emerald-100 bg-white/70 px-4 py-3">
+              <h2 className="text-sm font-semibold text-slate-900">
+                Verify your mobile number
+              </h2>
+              <p className="mt-1 text-xs text-slate-600">
+                We’ll use your phone so friends can find you by mobile and
+                invite you to groups.
+              </p>
 
-                {phoneError && (
-                  <div className="mt-3 rounded-lg border border-red-200 bg-red-50 px-3 py-2 text-xs text-red-700">
-                    {phoneError}
-                  </div>
-                )}
-                {phoneMsg && (
-                  <div className="mt-3 rounded-lg border border-emerald-200 bg-emerald-50 px-3 py-2 text-xs text-emerald-800">
-                    {phoneMsg}
-                  </div>
-                )}
+              {phoneError && (
+                <div className="mt-3 rounded-lg border border-red-200 bg-red-50 px-3 py-2 text-xs text-red-700">
+                  {phoneError}
+                </div>
+              )}
+              {phoneMsg && (
+                <div className="mt-3 rounded-lg border border-emerald-200 bg-emerald-50 px-3 py-2 text-xs text-emerald-800">
+                  {phoneMsg}
+                </div>
+              )}
 
-                {!phoneVerified ? (
-                  <div className="mt-4 space-y-3">
-                    {/* OTP input – 6 digits, numeric */}
-                    {phoneOtpSent && (
-                      <div>
-                        <label className="mb-1 block text-xs font-medium text-slate-700">
-                          Verification code
-                        </label>
-                        <OtpInput
-                          length={6}
-                          value={phoneOtp}
-                          onChange={setPhoneOtp}
-                          onComplete={(code) => {
-                            setPhoneOtp(code);
-                            // you can auto-submit here if you want:
-                            // handleVerifyPhoneOtp();
-                          }}
-                          disabled={phoneLoading}
-                        />
-                      </div>
-                    )}
-
-                    {/* Resend SMS */}
-                    {phoneOtpSent && (
-                      <button
-                        type="button"
-                        onClick={sendSignupPhoneOtp}
+              {!phoneVerified ? (
+                <div className="mt-4 space-y-3">
+                  {phoneOtpSent && (
+                    <div>
+                      <label className="mb-1 block text-xs font-medium text-slate-700">
+                        Verification code
+                      </label>
+                      <OtpInput
+                        length={6}
+                        value={phoneOtp}
+                        onChange={setPhoneOtp}
+                        onComplete={(code) => setPhoneOtp(code)}
                         disabled={phoneLoading}
-                        className={`inline-flex items-center justify-center rounded-lg px-4 py-2.5 text-sm font-semibold shadow-sm active:scale-[0.98] ${
-                          phoneLoading
-                            ? "bg-slate-300 text-white cursor-not-allowed"
-                            : "bg-[#84CC16] text-white hover:bg-[#76b514]"
-                        }`}
-                      >
-                        {phoneLoading ? "Sending SMS…" : "Resend SMS code"}
-                      </button>
-                    )}
+                      />
+                    </div>
+                  )}
 
-                    {/* Verify button */}
+                  {phoneOtpSent && (
                     <button
                       type="button"
-                      onClick={handleVerifyPhoneOtp}
-                      disabled={phoneLoading || phoneOtp.length !== 6}
+                      onClick={sendSignupPhoneOtp}
+                      disabled={phoneLoading}
+                      className={`inline-flex items-center justify-center rounded-lg px-4 py-2.5 text-sm font-semibold shadow-sm active:scale-[0.98] ${
+                        phoneLoading
+                          ? "bg-slate-300 text-white cursor-not-allowed"
+                          : "bg-[#84CC16] text-white hover:bg-[#76b514]"
+                      }`}
+                    >
+                      {phoneLoading ? "Sending SMS…" : "Resend SMS code"}
+                    </button>
+                  )}
+
+                  {!phoneOtpSent && (
+                    <button
+                      type="button"
+                      onClick={sendSignupPhoneOtp}
+                      disabled={phoneLoading}
                       className={`w-full rounded-lg px-4 py-2.5 text-sm font-semibold text-white shadow-sm active:scale-[0.98] ${
-                        phoneLoading || phoneOtp.length !== 6
+                        phoneLoading
                           ? "bg-slate-300 cursor-not-allowed"
                           : "bg-[#84CC16] hover:bg-[#76b514]"
                       }`}
                     >
-                      {phoneLoading ? "Verifying…" : "Verify phone"}
+                      {phoneLoading ? "Sending SMS…" : "Send SMS code"}
                     </button>
-                  </div>
-                ) : (
-                  <p className="mt-3 text-xs font-medium text-emerald-700">
-                    Phone verified successfully 🎉 You’ll be able to use
-                    phone-based invites once you sign in.
-                  </p>
-                )}
-              </div>
-            )}
+                  )}
+
+                  <button
+                    type="button"
+                    onClick={handleVerifyPhoneOtp}
+                    disabled={phoneLoading || phoneOtp.length !== 6}
+                    className={`w-full rounded-lg px-4 py-2.5 text-sm font-semibold text-white shadow-sm active:scale-[0.98] ${
+                      phoneLoading || phoneOtp.length !== 6
+                        ? "bg-slate-300 cursor-not-allowed"
+                        : "bg-[#84CC16] hover:bg-[#76b514]"
+                    }`}
+                  >
+                    {phoneLoading ? "Verifying…" : "Verify phone"}
+                  </button>
+                </div>
+              ) : (
+                <p className="mt-3 text-xs font-medium text-emerald-700">
+                  Phone verified successfully 🎉
+                </p>
+              )}
+            </div>
 
             <p className="mt-6 text-xs text-emerald-900/70">
-              You can still sign in once your email is verified, even if you
-              skip phone verification now. You’ll be able to manage your phone
-              from your profile later.
+              After verifying your email and phone, you can sign in.
             </p>
           </div>
         </div>
@@ -585,14 +600,13 @@ export default function SignUpPage() {
               </div>
             </div>
 
-            {/* Phone */}
+            {/* Phone (REQUIRED) */}
             <div>
               <label className="mb-1 block text-sm font-medium text-slate-700">
-                Mobile
+                Mobile <span className="text-red-600">*</span>
               </label>
 
               <div className="flex items-center gap-2">
-                {/* Country selector */}
                 <div className="w-[120px]">
                   <PhoneCountrySelect
                     countryCode={countryCode}
@@ -601,7 +615,6 @@ export default function SignUpPage() {
                   />
                 </div>
 
-                {/* Phone input */}
                 <div className="relative flex-1">
                   <FiPhone className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400" />
                   <input
@@ -609,18 +622,24 @@ export default function SignUpPage() {
                     name="tel"
                     type="tel"
                     inputMode="tel"
-                    placeholder=""
+                    placeholder="e.g. 0413 561 159"
                     className="h-11 w-full rounded-lg border border-slate-300 pl-10 pr-3 outline-none focus:border-[#84CC16] focus:ring-2 focus:ring-[#84CC16]/30"
                     value={phone}
                     onChange={(e) => setPhone(e.target.value)}
                     autoComplete="tel"
+                    required // ✅ required in UI
                   />
                 </div>
               </div>
 
-              {!phoneLooksOkay && trimmedPhone.length > 0 && (
+              {!phoneProvided && (
                 <p className="mt-1 text-xs text-red-600">
-                  Invalid phone number. Use a full mobile number or clear it.
+                  Mobile number is required.
+                </p>
+              )}
+              {phoneProvided && !phoneLooksOkay && (
+                <p className="mt-1 text-xs text-red-600">
+                  Invalid phone number. Please enter a full mobile number.
                 </p>
               )}
             </div>

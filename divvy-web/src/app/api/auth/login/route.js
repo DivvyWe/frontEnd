@@ -53,15 +53,18 @@ export async function POST(req) {
       );
     }
 
-    // Set long-lived cookie ("remember always")
+    // ✅ Set long-lived HttpOnly cookie, shared across subdomains in production
     const res = NextResponse.json({ ok: true, user: body.user ?? null });
+
     res.cookies.set("token", token, {
       httpOnly: true,
-      sameSite: "lax",
-      path: "/",
       secure: process.env.NODE_ENV === "production",
+      sameSite: "lax", // ok for same-site subdomains (app.divsez.com <-> api.divsez.com)
+      path: "/",
+      domain: process.env.NODE_ENV === "production" ? ".divsez.com" : undefined,
       maxAge: 60 * 60 * 24 * 365, // 1 year
     });
+
     return res;
   } catch (err) {
     console.error("[api/auth/login] error:", err);

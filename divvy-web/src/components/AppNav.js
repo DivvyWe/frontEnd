@@ -3,13 +3,60 @@
 
 import Link from "next/link";
 import Image from "next/image";
-import { usePathname } from "next/navigation";
+import { usePathname, useRouter } from "next/navigation";
 import { useState, useRef, useEffect } from "react";
 import { FiUsers, FiUser, FiUserPlus, FiLogOut } from "react-icons/fi";
-import LogoutButton from "@/components/LogoutButton";
 import NotificationBell from "@/components/NotificationBell";
 
 const BRAND = "#84CC16";
+
+/* ------------------------------ Logout cleanup (SW + cache + push) ------------------------------ */
+async function performLogoutCleanup() {
+  if (typeof window === "undefined") return;
+
+  try {
+    // 1) Unsubscribe from push notifications
+    if ("serviceWorker" in navigator) {
+      try {
+        const regs = await navigator.serviceWorker.getRegistrations();
+        await Promise.all(
+          regs.map(async (reg) => {
+            try {
+              const sub = await reg.pushManager.getSubscription();
+              if (sub) await sub.unsubscribe();
+            } catch {
+              // ignore per-reg errors
+            }
+          })
+        );
+      } catch {
+        // ignore
+      }
+    }
+
+    // 2) Clear Cache Storage
+    if ("caches" in window) {
+      try {
+        const keys = await caches.keys();
+        await Promise.all(keys.map((key) => caches.delete(key)));
+      } catch {
+        // ignore
+      }
+    }
+
+    // 3) Unregister all service workers (optional but keeps things clean per user)
+    if ("serviceWorker" in navigator) {
+      try {
+        const regs = await navigator.serviceWorker.getRegistrations();
+        await Promise.all(regs.map((reg) => reg.unregister()));
+      } catch {
+        // ignore
+      }
+    }
+  } catch {
+    // swallow any unexpected errors; logout should still proceed
+  }
+}
 
 /* ------------------------------ Top (desktop) tab ------------------------------ */
 function TopTab({ href, icon: Icon, label }) {
@@ -108,8 +155,48 @@ function useClickOutside(onClose) {
 /* ------------------------------ Avatar dropdown (desktop) ------------------------------ */
 function DesktopAvatarLogout({ me }) {
   const [open, setOpen] = useState(false);
+  const [loggingOut, setLoggingOut] = useState(false);
   const ref = useClickOutside(() => setOpen(false));
   const initial = (me?.username?.[0] || "U").toUpperCase();
+  const router = useRouter();
+
+  const handleLogoutClick = async () => {
+    if (loggingOut) return;
+    setLoggingOut(true);
+    setOpen(false);
+
+    try {
+      // 1) Backend logout (Next API route or proxy)
+      await fetch("/api/auth/logout", {
+        method: "POST",
+        cache: "no-store",
+      }).catch(() => {});
+
+      // 2) SW / push / cache cleanup
+      await performLogoutCleanup();
+
+      // 3) Clear token cookie (front-end managed)
+      if (typeof window !== "undefined") {
+        document.cookie = [
+          "token=;",
+          "Path=/",
+          "Max-Age=0",
+          "SameSite=Lax",
+          window.location.protocol === "https:" ? "Secure" : null,
+        ]
+          .filter(Boolean)
+          .join("; ");
+      }
+
+      // 4) Redirect to sign-in
+      router.replace("/auth/signin");
+      router.refresh?.();
+    } catch (e) {
+      console.error(e);
+      alert("Could not log out. Please try again.");
+      setLoggingOut(false);
+    }
+  };
 
   return (
     <div className="relative" ref={ref}>
@@ -149,24 +236,17 @@ function DesktopAvatarLogout({ me }) {
           </div>
 
           {/* Actions */}
-
           <div className="border-t border-slate-100">
             <button
-              onClick={() => {
-                setOpen(false);
-                const btn = document.querySelector("button[data-logout]");
-                if (btn) btn.click();
-              }}
-              className="flex w-full items-center gap-2 px-4 py-2.5 text-sm text-red-600 hover:bg-red-50 transition-colors"
+              onClick={handleLogoutClick}
+              disabled={loggingOut}
+              className={`flex w-full items-center gap-2 px-4 py-2.5 text-sm hover:bg-red-50 transition-colors ${
+                loggingOut ? "text-red-400 cursor-wait" : "text-red-600"
+              }`}
             >
               <FiLogOut className="h-4 w-4" />
-              Log out
+              {loggingOut ? "Logging out…" : "Log out"}
             </button>
-          </div>
-
-          {/* Hidden LogoutButton to trigger backend sign-out */}
-          <div className="hidden">
-            <LogoutButton />
           </div>
         </div>
       )}

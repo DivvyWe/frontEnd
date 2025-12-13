@@ -79,9 +79,7 @@ export default function PhoneCountrySelect({
                   svg
                   className="translate-y-[1px] text-xl leading-none"
                 />
-                <span>
-                  {c.iso2} +{c.dialCode}
-                </span>
+                <span>+{c.dialCode}</span>
               </ListboxOption>
             ))}
           </ListboxOptions>
